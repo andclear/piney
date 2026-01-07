@@ -1,0 +1,15 @@
+{
+    "name": "piney",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "cd frontend && npm run dev",
+        "dev:backend": "cargo run",
+        "build": "cd frontend && npm run build",
+        "check": "cd frontend && npm run check",
+        "tauri": "cargo tauri dev",
+        "docker:build": "cd docker && docker-compose build",
+        "docker:up": "cd docker && docker-compose up -d"
+    },
+    "description": "Piney - SillyTavern 角色卡工作站"
+}

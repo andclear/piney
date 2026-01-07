@@ -1,0 +1,105 @@
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "migration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Piney Team"]
+license = "MIT"
+repository = "https://github.com/piney/piney"
+
+[workspace.dependencies]
+# 异步运行时
+tokio = { version = "1.41", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Web 框架
+axum = { version = "0.8", features = ["macros", "multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs", "compression-gzip"] }
+
+# 数据库
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-uuid", "with-chrono", "with-json"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+
+# 工具库
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# 文件处理
+sha2 = "0.10"
+base64 = "0.22"
+png = "0.17"
+webp = "0.2"
+image = { version = "0.24", features = ["jpeg", "png", "webp", "default"] }
+
+# 认证与配置
+serde_yaml = "0.9"
+argon2 = "0.5"
+jsonwebtoken = "9.2"
+rand = "0.8"
+
+# 异步通道
+async-trait = "0.1"
+
+# ==================== 后端服务 Package ====================
+[package]
+name = "piney-backend"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Piney - SillyTavern 角色卡工作站后端服务"
+
+[lib]
+name = "piney"
+path = "src/lib.rs"
+
+[[bin]]
+name = "piney-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+tokio-util.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+sea-orm.workspace = true
+sea-orm-migration.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+dotenvy.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sha2.workspace = true
+base64.workspace = true
+png.workspace = true
+image.workspace = true
+webp.workspace = true
+async-trait.workspace = true
+serde_yaml.workspace = true
+argon2.workspace = true
+jsonwebtoken.workspace = true
+rand.workspace = true
+migration = { path = "migration" }
+reqwest.workspace = true
+flate2 = "1.1.5"

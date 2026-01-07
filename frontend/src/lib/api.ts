@@ -1,0 +1,105 @@
+/**
+ * API 调用统一封装
+ * 
+ * 智能检测运行环境：
+ * - 浏览器/Docker 模式：使用 fetch
+ * - Tauri 模式：通过 localhost HTTP 请求
+ */
+
+// API 基础路径
+const getApiBase = (): string => {
+    // 检测是否在 Tauri 环境
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+        return 'http://localhost:9696';
+    }
+    // 开发环境或 Docker 模式
+    return '';
+};
+
+// 请求选项类型
+interface RequestOptions {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    body?: unknown;
+    headers?: Record<string, string>;
+}
+
+// API 响应类型
+export interface ApiResponse<T = unknown> {
+    success: boolean;
+    data?: T;
+    message?: string;
+    error?: string;
+}
+
+// 分页响应类型
+export interface PaginatedResponse<T> {
+    items: T[];
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+}
+
+/**
+ * 统一的 API 调用函数
+ */
+export async function apiCall<T = unknown>(
+    path: string,
+    options: RequestOptions = {}
+): Promise<ApiResponse<T>> {
+    const { method = 'GET', body, headers = {} } = options;
+
+    const apiBase = getApiBase();
+    const url = `${apiBase}/api${path}`;
+
+    const requestHeaders: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...headers
+    };
+
+    // 添加认证 token（如果存在）
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    if (token) {
+        requestHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+        const response = await fetch(url, {
+            method,
+            headers: requestHeaders,
+            body: body ? JSON.stringify(body) : undefined
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            return {
+                success: false,
+                error: data.error || data.message || `请求失败: ${response.status}`
+            };
+        }
+
+        return {
+            success: true,
+            data: data as T
+        };
+    } catch (error) {
+        console.error('API 调用错误:', error);
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : '网络请求失败'
+        };
+    }
+}
+
+// 便捷方法
+export const api = {
+    get: <T>(path: string) => apiCall<T>(path, { method: 'GET' }),
+    post: <T>(path: string, body?: unknown) => apiCall<T>(path, { method: 'POST', body }),
+    put: <T>(path: string, body?: unknown) => apiCall<T>(path, { method: 'PUT', body }),
+    patch: <T>(path: string, body?: unknown) => apiCall<T>(path, { method: 'PATCH', body }),
+    delete: <T>(path: string) => apiCall<T>(path, { method: 'DELETE' })
+};
+
+// 类型导出
+export type { RequestOptions };

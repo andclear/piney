@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  piney:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: piney
+    restart: unless-stopped
+    ports:
+      - "9696:9696"
+    volumes:
+      - ../data:/app/data
+    environment:
+      - RUN_MODE=server
+      - PORT=9696
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9696/api/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

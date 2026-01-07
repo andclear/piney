@@ -1,0 +1,46 @@
+# 依赖和构建产物
+/target/
+/frontend/node_modules/
+/frontend/build/
+/frontend/.svelte-kit/
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+npm-debug.log*
+
+# 运行时数据
+/data/
+*.db
+*.db-journal
+
+# Tauri 构建产物
+/src-tauri/target/
+
+# 测试
+/coverage/
+
+# 临时文件
+*.tmp
+*.temp
+
+# agent
+.agent
+
+# 文档
+docs/
