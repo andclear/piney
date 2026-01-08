@@ -123,18 +123,18 @@
 
     // Placement Options
     const PLACEMENTS = [
-        { value: 1, label: "用户输入 (User Input)", general: true },
-        { value: 2, label: "AI输出 (AI Output)", general: true },
-        { value: 3, label: "快捷命令 (Slash Commands)", general: false },
-        { value: 5, label: "世界信息 (World Info)", general: false },
-        { value: 6, label: "推理 (Reasoning)", general: false }
+        { value: 1, label: "用户输入", general: true },
+        { value: 2, label: "AI输出", general: true },
+        { value: 3, label: "快捷命令", general: false },
+        { value: 5, label: "世界信息", general: false },
+        { value: 6, label: "推理", general: false }
     ];
 
     // Substitute Regex Options
     const SUBSTITUTE_OPTIONS = [
-        { value: 0, label: "不替换 (None)" },
-        { value: 1, label: "原始 (Original)" },
-        { value: 2, label: "转义 (Escaped)" }
+        { value: 0, label: "不替换" },
+        { value: 1, label: "原始" },
+        { value: 2, label: "转义" }
     ];
 
     function togglePlacement(value: number, checked: boolean) {
@@ -246,7 +246,7 @@
             <div class="grid gap-4 sm:grid-cols-2">
                 <!-- Script Name -->
                 <div class="space-y-2 sm:col-span-2">
-                    <Label>脚本名称 (Script Name)</Label>
+                    <Label>脚本名称</Label>
                     <Input 
                         bind:value={localName} 
                         placeholder="例如: 移除多余空行" 
@@ -260,7 +260,7 @@
                 <!-- Find Regex -->
                 <div class="space-y-2 sm:col-span-2">
                     <div class="flex items-center justify-between">
-                         <Label>查找正则表达式 (Regex)</Label>
+                         <Label>正则表达式</Label>
                          {#if isAdvanced}
                             <div class="text-xs text-muted-foreground">
                                 宏: 
@@ -282,7 +282,7 @@
                             isFindDirty && "border-amber-500/50 focus-visible:ring-amber-500/50 bg-amber-500/5"
                         )}
                         rows={2}
-                        placeholder="/regex/flags"
+                        placeholder="在这里写正则表达式..."
                     />
                 </div>
 
@@ -290,9 +290,9 @@
                 <div class="space-y-2 sm:col-span-2">
                     <RichTextarea 
                         bind:value={localReplace} 
-                        label="替换为 (Replace)"
+                        label="替换为"
                         class="font-mono text-xs" 
-                        placeholder="Replacement string..."
+                        placeholder="在这里写替换内容..."
                         rows={3}
                         isDirty={isReplaceDirty}
                         useCodeEditor={true}
@@ -302,7 +302,7 @@
                 <!-- Trim Strings (Advanced Only) -->
                 {#if isAdvanced}
                     <div class="space-y-2 sm:col-span-2">
-                        <Label class={cn(isTrimDirty && "text-amber-500")}>修剪掉 (Trim Strings)</Label>
+                        <Label class={cn(isTrimDirty && "text-amber-500")}>修剪掉</Label>
                         <Textarea 
                             value={localTrim.join('\n')} 
                             oninput={handleTrimChange}
@@ -317,9 +317,8 @@
                 {/if}
 
                 <!-- Placement -->
-                <!-- Placement -->
                 <div class="space-y-2 sm:col-span-2">
-                    <Label class={cn(isPlacementDirty && "text-amber-500")}>作用范围 (Placement)</Label>
+                    <Label class={cn(isPlacementDirty && "text-amber-500")}>作用范围</Label>
                     <div class={cn("border rounded-md p-3", isPlacementDirty && "border-amber-500/50 bg-amber-500/5")}>
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {#each PLACEMENTS as p}
@@ -349,7 +348,7 @@
 
                 <!-- Depth -->
                 <div class="space-y-2">
-                    <Label>最小深度 (Min Depth)</Label>
+                    <Label>最小深度</Label>
                     <Input 
                         type="number" 
                         bind:value={localMinDepth} 
@@ -361,7 +360,7 @@
                     />
                 </div>
                 <div class="space-y-2">
-                    <Label>最大深度 (Max Depth)</Label>
+                    <Label>最大深度</Label>
                     <Input 
                         type="number" 
                         bind:value={localMaxDepth} 

@@ -1221,7 +1221,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="space-y-1">
                             <h2 class="text-lg font-semibold">
-                                正则脚本 (Regex Scripts)
+                                正则脚本
                             </h2>
                             <p class="text-xs text-muted-foreground">
                                 配置针对此角色的正则表达式替换规则
