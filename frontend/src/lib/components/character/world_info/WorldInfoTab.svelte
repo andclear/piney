@@ -418,19 +418,12 @@
             />
         </div>
         <div class="flex items-center gap-2">
-            <Button
-                onclick={addEntry}
-                class="gap-2 border-primary bg-background text-foreground hover:bg-primary/10"
-                variant="outline"
-            >
-                <Plus class="h-4 w-4" /> 添加条目
-            </Button>
             {#if mode === "character"}
                 <DropdownMenu.Root>
-                    <DropdownMenu.Trigger class="inline-flex items-center justify-center rounded-md text-sm font-medium whitespace-nowrap ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9">
+                    <DropdownMenu.Trigger class="inline-flex items-center justify-center rounded-md text-sm font-medium whitespace-nowrap ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 w-9 border border-input shadow-sm">
                         <MoreHorizontal class="h-4 w-4" />
                     </DropdownMenu.Trigger>
-                    <DropdownMenu.Content align="end">
+                    <DropdownMenu.Content align="start">
                         <DropdownMenu.Item onclick={() => importDialogOpen = true}>
                             <FileDown class="mr-2 h-4 w-4" />
                             从全局世界书导入...
@@ -442,6 +435,13 @@
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
             {/if}
+            <Button
+                onclick={addEntry}
+                class="gap-2 border-primary bg-background text-foreground hover:bg-primary/10"
+                variant="outline"
+            >
+                <Plus class="h-4 w-4" /> 添加条目
+            </Button>
             {#if mode === "global"}
                  <Button
                     onclick={exportWorldBook}

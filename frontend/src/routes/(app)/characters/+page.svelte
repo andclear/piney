@@ -51,6 +51,7 @@
         cover_blur: boolean;
         version: string | null;
         created_at: string;
+        updated_at: string;
     }
 
     // ============ 状态 ============
@@ -770,7 +771,7 @@
                             <!-- 封面图容器 -->
                             <div class="aspect-[2/3] relative overflow-hidden">
                                 <img
-                                    src={card.avatar || "/default.webp"}
+                                    src={card.avatar ? `${card.avatar}?v=${new Date(card.updated_at).getTime()}` : "/default.webp"}
                                     alt={card.name}
                                     class={cn(
                                         "w-full h-full object-cover",

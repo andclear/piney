@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use base64::{engine::general_purpose, Engine as _};
+use chrono::TimeZone;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -648,8 +649,8 @@ pub struct CardListItem {
     pub rating: f64,
     pub cover_blur: bool,
     pub version: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub deleted_at: Option<chrono::NaiveDateTime>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// GET /api/cards - 获取角色卡列表
@@ -693,8 +694,8 @@ pub async fn list(
                 rating: c.rating,
                 cover_blur: c.cover_blur,
                 version: c.version,
-                created_at: c.created_at,
-                deleted_at: c.deleted_at,
+                created_at: chrono::Utc.from_utc_datetime(&c.created_at),
+                deleted_at: c.deleted_at.map(|d| chrono::Utc.from_utc_datetime(&d)),
             }
         })
         .collect();
@@ -737,6 +738,8 @@ pub struct UpdateCardRequest {
     pub custom_summary: Option<String>,
     pub character_book: Option<Value>,
     pub extensions: Option<Value>,
+    // Partial extension update: only update regex_scripts
+    pub regex_scripts: Option<Value>,
 }
 
 /// PATCH /api/cards/:id - 更新角色卡
@@ -888,6 +891,33 @@ pub async fn update(
         spec_modified = true;
     }
 
+    // 12.5. Regex Scripts (Partial extension update)
+    // This allows updating ONLY regex_scripts without affecting other extension fields
+    if let Some(regex_scripts_val) = payload.regex_scripts {
+        // Get current extensions object BEFORE using update_json to avoid borrow conflicts
+        let current_extensions = if let Some(data) = current_json.get("data") {
+            data.get("extensions")
+                .cloned()
+                .unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        // Create updated extensions with only regex_scripts modified
+        let mut updated_extensions = current_extensions;
+        if let Some(obj) = updated_extensions.as_object_mut() {
+            obj.insert("regex_scripts".to_string(), regex_scripts_val);
+        }
+
+        // Save back to data.extensions
+        if let Some(data) = current_json.get_mut("data") {
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("extensions".to_string(), updated_extensions);
+            }
+        }
+        spec_modified = true;
+    }
+
     // --- Sync Logic End ---
 
     // Save JSON changes if needed
@@ -931,24 +961,6 @@ pub async fn update_cover(
             .await
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-        // Load and Resize (Synchronous block)
-        let webp_data = {
-            let img = image::load_from_memory(&data)
-                .map_err(|e| (StatusCode::BAD_REQUEST, format!("Image load failed: {}", e)))?;
-
-            // 512x768 (Fill/Crop to ratio? Or Force Resize?)
-            let resized = img.resize_to_fill(512, 768, image::imageops::FilterType::Lanczos3);
-
-            // Save as WebP (Avatar)
-            let encoder = webp::Encoder::from_image(&resized).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("WebP init failed: {}", e),
-                )
-            })?;
-            encoder.encode(85.0).to_vec()
-        }; // img, resized, encoder dropped here
-
         let storage_dir = format!("data/cards/{}", id);
         if !StdPath::new(&storage_dir).exists() {
             fs::create_dir_all(&storage_dir)
@@ -956,18 +968,66 @@ pub async fn update_cover(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
 
+        // Load image
+        let img = image::load_from_memory(&data)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Image load failed: {}", e)))?;
+
+        // Resize to 512x768 for both Source (PNG) and Thumbnail (WebP)
+        // This satisfies user requirement: "Original PNG must also be cropped/resized to 512x768"
+        let resized = img.resize_to_fill(512, 768, image::imageops::FilterType::Lanczos3);
+
+        // 1. Save as Source PNG (v1_source.png)
+        let png_name = "v1_source.png";
+        let png_path = std::path::Path::new(&storage_dir).join(png_name);
+
+        // Write RESIZED image to PNG
+        let mut png_data = Vec::new();
+        {
+            let mut cursor = std::io::Cursor::new(&mut png_data);
+            resized
+                .write_to(&mut cursor, image::ImageOutputFormat::Png)
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("PNG conversion failed: {}", e),
+                    )
+                })?;
+        }
+
+        fs::write(&png_path, &png_data).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Write source png failed: {}", e),
+            )
+        })?;
+
+        // 2. Save as WebP (Avatar)
+        // Use the same resized image
+        let webp_data = {
+            let encoder = webp::Encoder::from_image(&resized).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("WebP init failed: {}", e),
+                )
+            })?;
+            encoder.encode(85.0).to_vec()
+        };
+
         let file_path = format!("{}/v1_thumbnail.webp", storage_dir); // Keeping naming convention
         fs::write(&file_path, &*webp_data).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Write file failed: {}", e),
+                format!("Write thumbnail failed: {}", e),
             )
         })?;
 
-        // Update DB if avatar path was missing (though import sets it)
+        // Update DB
         let mut active: character_card::ActiveModel = card.into();
         let expected_path = format!("/cards/{}/v1_thumbnail.webp", id);
         active.avatar = Set(Some(expected_path));
+        // Mark as modified since source image changed (and likely needs new metadata injected on export)
+        active.metadata_modified = Set(true);
+
         active
             .update(&db)
             .await
@@ -1075,9 +1135,22 @@ pub async fn export_card(
             })?;
         }
 
+        // --- NEW LOGIC: Overwrite source file and reset metadata_modified ---
+        if let Err(e) = fs::write(&png_path, &output_data).await {
+            tracing::error!("Failed to overwrite updated PNG to source file: {}", e);
+            // We continue even if write fails, returning the generated data to user is priority
+        } else {
+            // Update DB to reset flag
+            let mut active: character_card::ActiveModel = card.into();
+            active.metadata_modified = Set(false);
+            if let Err(e) = active.update(&db).await {
+                tracing::error!("Failed to reset metadata_modified flag: {}", e);
+            }
+        }
+
         return Ok((headers, Body::from(output_data)));
     } else if png_path.exists() {
-        // Stream original
+        // Stream original (already contains up-to-date metadata)
         let file = tokio::fs::File::open(png_path)
             .await
             .map_err(|e| (StatusCode::NOT_FOUND, format!("File open failed: {}", e)))?;
@@ -1191,8 +1264,8 @@ pub async fn list_trash(
                 rating: c.rating,
                 cover_blur: c.cover_blur,
                 version: c.version,
-                created_at: c.created_at,
-                deleted_at: c.deleted_at,
+                created_at: chrono::Utc.from_utc_datetime(&c.created_at),
+                deleted_at: c.deleted_at.map(|d| chrono::Utc.from_utc_datetime(&d)),
             }
         })
         .collect();

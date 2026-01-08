@@ -21,6 +21,7 @@
         Search,
         Eye,
         EyeOff,
+        GripVertical
     } from "lucide-svelte";
     import { cn } from "$lib/utils";
     import { slide } from "svelte/transition";
@@ -558,6 +559,10 @@
         class="sticky top-0 z-10 bg-card flex items-center gap-3 p-3 cursor-pointer select-none rounded-t-xl"
         onclick={() => (isOpen = !isOpen)}
     >
+        <div class="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
+            <GripVertical class="h-4 w-4" />
+        </div>
+
         <button class="p-1 rounded-md hover:bg-background/20 transition-colors">
             {#if isOpen}
                 <ChevronDown class="h-4 w-4 opacity-70" />

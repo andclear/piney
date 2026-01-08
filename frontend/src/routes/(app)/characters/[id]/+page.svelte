@@ -35,13 +35,17 @@
         Map,
         StickyNote,
         Terminal,
+        Trash2,
     } from "lucide-svelte";
     import * as Dialog from "$lib/components/ui/dialog";
+    import * as AlertDialog from "$lib/components/ui/alert-dialog";
     import { cn } from "$lib/utils";
     import { breadcrumbs } from "$lib/stores/breadcrumb";
     import RichTextarea from "$lib/components/character/RichTextarea.svelte";
     import GreetingsSwitcher from "$lib/components/character/GreetingsSwitcher.svelte";
     import WorldInfoTab from "$lib/components/character/world_info/WorldInfoTab.svelte";
+    import ImageCropperDialog from "$lib/components/ui/ImageCropperDialog.svelte";
+    import RegexTab from "$lib/components/character/regex/RegexTab.svelte";
 
     const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:9696";
     let cardId = $page.params.id;
@@ -54,6 +58,12 @@
     let editingSummary = "";
     let isSavingNote = false;
     let coverInput: HTMLInputElement;
+    let avatarKey: number | null = null;
+    
+    // Cropper State
+    let showCropper = false;
+    let cropperImageSrc: string | null = null;
+    let selectedFileType = "image/png";
 
     // Persona Tab State
     let formName = "";
@@ -171,7 +181,10 @@
         pendingTarget = null;
     }
 
-    // AI Overview State
+    // Delete Card State
+    let showDeleteDialog = false;
+
+    // AI Overview Generation
     let isGeneratingOverview = false;
     let generationLogs: string[] = [];
     let isLogsOpen = false;
@@ -284,6 +297,11 @@
             });
             if (!res.ok) throw new Error("加载角色卡失败");
             card = await res.json();
+
+            // Use updated_at timestamp for cache busting on initial load
+            if (!avatarKey && card.updated_at) {
+                avatarKey = new Date(card.updated_at).getTime();
+            }
 
             breadcrumbs.set([
                 { label: "角色库", href: "/characters" },
@@ -401,14 +419,12 @@
         isSavingWorldInfo = true;
         try {
             const token = localStorage.getItem("auth_token");
-            // Extract relevant data from card.data.data
-            // We assume WorldInfoTab modified card.data.data directly via binding
             const wbData = card.data?.data?.character_book;
-            const extData = card.data?.data?.extensions;
 
+            // CRITICAL: Only send character_book, do NOT send extensions
+            // to avoid overwriting regex_scripts and other extension fields
             const payload = {
                 character_book: wbData,
-                extensions: extData,
             };
 
             const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
@@ -422,10 +438,43 @@
 
             if (!res.ok) throw new Error("保存失败");
             toast.success("世界书已保存");
+            lastSaved = Date.now();
             updateFormSnapshot();
         } catch (e) {
             console.error(e);
             toast.error("保存世界书失败", { description: String(e) });
+        } finally {
+            isSavingWorldInfo = false;
+        }
+    }
+
+    // Save Regex Scripts ONLY (does not affect other extension fields)
+    async function saveRegex() {
+        isSavingWorldInfo = true;
+        try {
+            const token = localStorage.getItem("auth_token");
+            
+            // Send ONLY regex_scripts field for partial update
+            const payload = {
+                regex_scripts: card.data?.data?.extensions?.regex_scripts || []
+            };
+
+            const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) throw new Error("保存失败");
+            toast.success("正则脚本已保存");
+            lastSaved = Date.now();
+            updateFormSnapshot();
+        } catch (e) {
+            console.error(e);
+            toast.error("保存正则脚本失败", { description: String(e) });
         } finally {
             isSavingWorldInfo = false;
         }
@@ -461,8 +510,29 @@
         const file = (e.target as HTMLInputElement).files?.[0];
         if (!file) return;
 
+        // Reset input so same file can be selected again
+        (e.target as HTMLInputElement).value = "";
+
+        selectedFileType = file.type || "image/png";
+        
+        // Read file for cropper
+        const reader = new FileReader();
+        reader.onload = () => {
+             if (typeof reader.result === 'string') {
+                 cropperImageSrc = reader.result;
+                 showCropper = true;
+             }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function handleCropConfirm(e: CustomEvent<Blob>) {
+        const blob = e.detail;
+        if (!blob) return;
+
         const formData = new FormData();
-        formData.append("file", file);
+        // Use a generic name, backend handles persistence
+        formData.append("file", blob, "cover.png"); 
 
         const loadingToast = toast.loading("正在更新封面...");
         try {
@@ -475,6 +545,7 @@
             if (!res.ok) throw new Error("上传失败");
 
             toast.success("封面更新成功");
+            avatarKey = Date.now(); // Force refresh image
             await loadCard(); // Reload to get new version/avatar url
         } catch (e) {
             toast.error("更新封面失败");
@@ -483,11 +554,30 @@
         }
     }
 
+    async function deleteCard() {
+        try {
+            const token = localStorage.getItem("auth_token");
+            const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
+                method: "DELETE",
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (res.ok) {
+                toast.success("已移至回收站");
+                goto("/characters");
+            } else {
+                toast.error("删除失败");
+            }
+        } catch (e) {
+            toast.error("删除失败");
+            console.error(e);
+        }
+    }
+
     const menuItems = [
         { id: "overview", label: "概览", icon: FileText },
         { id: "persona", label: "设定", icon: IdCard },
-        { id: "world_info", label: "世界书", icon: Globe }, // lucide-svelte has Globe? Or rename
-        { id: "regex", label: "正则", icon: Regex }, // Using placeholder icon
+        { id: "world_info", label: "世界书", icon: Globe }, 
+        { id: "regex", label: "正则脚本", icon: Regex },
         { id: "chat", label: "聊天记录", icon: History },
         { id: "versions", label: "版本历史", icon: GitBranch }, // Placeholder
     ];
@@ -552,7 +642,7 @@
             </div>
         {:else}
             <!-- 概览页 -->
-            {#if activeTab === "overview"}
+            <div class={activeTab === "overview" ? "" : "hidden"}>
                 <div
                     class="animate-in fade-in slide-in-from-bottom-4 duration-500"
                 >
@@ -565,7 +655,7 @@
                                 class="aspect-[2/3] w-full rounded-xl overflow-hidden border bg-muted shadow-sm relative group"
                             >
                                 <img
-                                    src={card.avatar || "/default.webp"}
+                                    src={`${card.avatar || "/default.webp"}?t=${avatarKey}`}
                                     alt="封面"
                                     class={cn(
                                         "w-full h-full object-cover transition-transform duration-500 group-hover:scale-105",
@@ -603,6 +693,14 @@
                                 onclick={exportCard}
                             >
                                 <Download class="mr-2 h-4 w-4" /> 导出卡片
+                            </Button>
+                            <Button
+                                class="w-full !text-destructive !hover:text-destructive !hover:bg-destructive/10"
+                                variant="outline"
+                                size="sm"
+                                onclick={() => (showDeleteDialog = true)}
+                            >
+                                <Trash2 class="mr-2 h-4 w-4" /> 删除卡片
                             </Button>
 
                             <!-- Token Stats (Moved to Left) -->
@@ -885,7 +983,9 @@
                         </div>
                     </div>
                 </div>
-            {:else if activeTab === "persona"}
+            </div>
+
+            <div class={activeTab === "persona" ? "" : "hidden"}>
                 <div
                     class="space-y-6 max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10"
                 >
@@ -1072,7 +1172,11 @@
                         {/if}
                     </div>
                 </div>
-            {:else if activeTab === "world_info"}
+            </div>
+
+            
+            <!-- World Info Tab -->
+            <div class={activeTab === "world_info" ? "" : "hidden"}>
                 <div class="space-y-6 max-w-4xl mx-auto pb-10">
                     <div class="flex items-center justify-between mb-4">
                         <div class="space-y-1">
@@ -1108,11 +1212,47 @@
                         </div>
                     {/if}
                 </div>
-            {:else if activeTab === "regex"}
-                <div class="text-center py-20 text-muted-foreground">
-                    该模块暂未开放
                 </div>
-            {/if}
+
+
+            <!-- Regex Tab -->
+            <div class={activeTab === "regex" ? "" : "hidden"}>
+                 <div class="space-y-6 max-w-4xl mx-auto pb-10">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="space-y-1">
+                            <h2 class="text-lg font-semibold">
+                                正则脚本 (Regex Scripts)
+                            </h2>
+                            <p class="text-xs text-muted-foreground">
+                                配置针对此角色的正则表达式替换规则
+                            </p>
+                        </div>
+                        <Button
+                            onclick={saveRegex}
+                            disabled={isSavingWorldInfo}
+                            class="gap-2"
+                        >
+                            {#if isSavingWorldInfo}
+                                <Loader2 class="h-4 w-4 animate-spin" /> 保存中...
+                            {:else}
+                                <Save class="h-4 w-4" /> 保存脚本
+                            {/if}
+                        </Button>
+                    </div>
+
+                    {#if card && card.data && card.data.data}
+                        <RegexTab
+                            bind:data={card.data.data}
+                            {lastSaved}
+                            onChange={() => (card = card)}
+                        />
+                    {:else}
+                         <div class="text-center py-20 text-muted-foreground">
+                            数据加载未完成或格式错误
+                        </div>
+                    {/if}
+                </div>
+            </div>
         {/if}
     </div>
 </div>
@@ -1191,6 +1331,24 @@
     </Dialog.Content>
 </Dialog.Root>
 
+<AlertDialog.Root bind:open={showDeleteDialog}>
+    <AlertDialog.Content>
+        <AlertDialog.Header>
+            <AlertDialog.Title>你是认真的吗？</AlertDialog.Title>
+            <AlertDialog.Description>
+                此操作将把该角色卡移至回收站。你可以在角色库的回收站中恢复它。
+            </AlertDialog.Description>
+        </AlertDialog.Header>
+        <AlertDialog.Footer>
+            <AlertDialog.Cancel>取消</AlertDialog.Cancel>
+            <AlertDialog.Action
+                class="bg-destructive !text-destructive-foreground hover:bg-destructive/90"
+                onclick={deleteCard}>删除</AlertDialog.Action
+            >
+        </AlertDialog.Footer>
+    </AlertDialog.Content>
+</AlertDialog.Root>
+
 {#snippet ReviewStat({
     label,
     value,
@@ -1204,6 +1362,13 @@
         <div class="text-[10px] text-muted-foreground mb-0.5">{label}</div>
         <div class={cn("font-mono font-bold", compact ? "text-sm" : "text-xl")}>
             {value}
-        </div>
+        
+    <!-- Cropper Dialog -->
+    <ImageCropperDialog 
+        bind:open={showCropper} 
+        imageSrc={cropperImageSrc} 
+        on:confirm={handleCropConfirm} 
+    />
+</div>
     </div>
 {/snippet}
