@@ -549,9 +549,10 @@
 
 <div
     class={cn(
-        "rounded-xl border bg-card/50 shadow-sm transition-all duration-300 group hover:border-primary/20",
-        // Container dirty style? Maybe too much. Keep it granular.
-        "border-border/40",
+        "rounded-xl border bg-card/50 shadow-sm transition-all duration-300 group",
+        isOpen
+            ? "border-primary ring-1 ring-primary/100 shadow-md bg-card"
+            : "border-border/40 hover:border-primary/100",
     )}
 >
     <!-- Header / Toggle -->
