@@ -11,6 +11,7 @@
     import * as Dialog from "$lib/components/ui/dialog";
     import * as Tabs from "$lib/components/ui/tabs";
     import * as ContextMenu from "$lib/components/ui/context-menu";
+    import * as Pagination from "$lib/components/ui/pagination";
 
     import * as AlertDialog from "$lib/components/ui/alert-dialog";
     import { longpress } from "$lib/actions/longpress";
@@ -31,6 +32,8 @@
         CheckSquare,
         Hash,
         Upload,
+        ChevronLeft,
+        ChevronRight
     } from "lucide-svelte";
 
     // ============ 类型定义 ============
@@ -85,6 +88,13 @@
     // 拖拽状态
     let draggedCategoryId: string | null = $state(null);
 
+    // 分页状态
+    let currentPage = $state(1);
+    let pageSize = $state(20);
+    let totalItems = $state(0);
+    let totalPages = $state(0);
+    let jumpToPage = $state(1); // For the input field
+
     // ============ API 调用 ============
     async function fetchCategories() {
         try {
@@ -108,14 +118,37 @@
             if (selectedCategoryId)
                 params.set("category_id", selectedCategoryId);
             if (searchQuery) params.set("search", searchQuery);
+            
+            // Pagination params
+            params.set("page", currentPage.toString());
+            params.set("page_size", pageSize.toString());
+
             if (params.toString()) url += `?${params.toString()}`;
 
             const res = await fetch(url, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (res.ok) {
-                cards = await res.json();
-                // 收集所有标签和计数
+                const data = await res.json();
+                
+                // Handle paginated response
+                if (data.items) {
+                    cards = data.items;
+                    totalItems = data.total;
+                    currentPage = data.page;
+                    pageSize = data.page_size;
+                    totalPages = data.total_pages;
+                    jumpToPage = currentPage;
+                } else {
+                    // Fallback for old API if something goes wrong (should not happen with updated backend)
+                    cards = data;
+                    totalItems = cards.length;
+                    totalPages = 1;
+                }
+
+                // Collect tags from current page (or should it be all? Usually all is better for sidebar, but API only returns page. 
+                // Note: Tag stats might only reflect current page now, which is a trade-off unless we have a separate tags API)
+                // For now, we calculate from visible cards.
                 const counts: Record<string, number> = {};
                 const tagSet = new Set<string>();
                 cards.forEach((c) => {
@@ -124,6 +157,10 @@
                         counts[t] = (counts[t] || 0) + 1;
                     });
                 });
+                
+                // If we want comprehensive tags, we might need a separate API call. 
+                // But for now, let's keep it based on visible cards or accept limitation.
+                // Or maybe we should append tags? No, let's stick to visible.
                 allTags = Array.from(tagSet).sort();
                 tagCounts = counts;
             }
@@ -1094,6 +1131,78 @@
                     </ContextMenu.Content>
                 </ContextMenu.Root>
             {/each}
+        </div>
+    {/if}
+
+    <!-- Pagination Controls -->
+    {#if totalPages > 1}
+        <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t pt-6">
+            <div class="text-sm text-muted-foreground">
+                显示 第 <span class="font-medium">{(currentPage - 1) * pageSize + 1}</span> 到 <span class="font-medium">{Math.min(currentPage * pageSize, totalItems)}</span> 条，共 <span class="font-medium">{totalItems}</span> 条角色
+            </div>
+            
+            <div class="flex items-center gap-2">
+                 <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onclick={() => {
+                        currentPage--;
+                        fetchCards();
+                    }}
+                >
+                    <ChevronLeft class="h-4 w-4 mr-1" /> 上一页
+                </Button>
+                
+                <div class="flex items-center gap-2 mx-2">
+                    <span class="text-sm">第</span>
+                    <Input
+                        type="number"
+                        min="1"
+                        max={totalPages}
+                        bind:value={jumpToPage}
+                        class="h-8 w-16 text-center"
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter') {
+                                let p = parseInt(String(jumpToPage));
+                                if (isNaN(p) || p < 1) p = 1;
+                                if (p > totalPages) p = totalPages;
+                                currentPage = p;
+                                jumpToPage = p;
+                                fetchCards();
+                            }
+                        }}
+                    />
+                    <span class="text-sm">页 / 共 {totalPages} 页</span>
+                     <Button
+                        variant="ghost"
+                        size="sm"
+                        class="h-8 px-2 text-xs"
+                        onclick={() => {
+                             let p = parseInt(String(jumpToPage));
+                                if (isNaN(p) || p < 1) p = 1;
+                                if (p > totalPages) p = totalPages;
+                                currentPage = p;
+                                jumpToPage = p;
+                                fetchCards();
+                        }}
+                    >
+                        跳转
+                    </Button>
+                </div>
+
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onclick={() => {
+                        currentPage++;
+                        fetchCards();
+                    }}
+                >
+                    下一页 <ChevronRight class="h-4 w-4 ml-1" />
+                </Button>
+            </div>
         </div>
     {/if}
 

@@ -421,6 +421,7 @@
                 body: JSON.stringify({ user_note: editingNote }),
             });
             if (!res.ok) throw new Error("保存失败");
+            await loadCard();
             toast.success("备注已保存");
         } catch (e) {
             toast.error("保存失败");
@@ -455,15 +456,14 @@
 
             if (!res.ok) throw new Error("保存失败");
 
-            // Sync local card name if changed
             if (card.name !== formName) {
-                card.name = formName;
                 breadcrumbs.set([
                     { label: "角色库", href: "/characters" },
                     { label: formName },
                 ]);
             }
 
+            await loadCard();
             toast.success("设定已保存");
         } catch (e) {
             console.error(e);
@@ -496,6 +496,7 @@
             });
 
             if (!res.ok) throw new Error("保存失败");
+            await loadCard();
             toast.success("世界书已保存");
             lastSaved = Date.now();
             updateFormSnapshot();
@@ -528,6 +529,7 @@
             });
 
             if (!res.ok) throw new Error("保存失败");
+            await loadCard();
             toast.success("正则脚本已保存");
             lastSaved = Date.now();
             updateFormSnapshot();
@@ -770,23 +772,26 @@
                             >
                                 {@render ReviewStat({
                                     label: "总 Token",
-                                    value: "--",
+                                    value: card.token_count_total ?? '-',
                                     compact: true,
                                 })}
                                 {@render ReviewStat({
                                     label: "设定",
-                                    value: "--",
+                                    value: card.token_count_spec ?? '-',
                                     compact: true,
+                                    color: "text-blue-500"
                                 })}
                                 {@render ReviewStat({
                                     label: "世界书",
-                                    value: "--",
+                                    value: card.token_count_wb ?? '-',
                                     compact: true,
+                                    color: "text-purple-500"
                                 })}
                                 {@render ReviewStat({
                                     label: "其他",
-                                    value: "--",
+                                    value: card.token_count_other ?? '-',
                                     compact: true,
+                                    color: "text-muted-foreground"
                                 })}
                             </div>
                         </div>
@@ -1050,6 +1055,8 @@
                             {/if}
                         </Button>
                     </div>
+
+
 
                     <div class="space-y-8">
                         <!-- Identity Section -->

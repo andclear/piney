@@ -33,6 +33,11 @@ pub struct Model {
     pub metadata_modified: bool,
     #[sea_orm(column_type = "Text")]
     pub data_hash: Option<String>,
+    // Token 统计
+    pub token_count_total: Option<i32>,
+    pub token_count_spec: Option<i32>,
+    pub token_count_wb: Option<i32>,
+    pub token_count_other: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

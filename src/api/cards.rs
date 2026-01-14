@@ -7,7 +7,8 @@ use axum::{
 use base64::{engine::general_purpose, Engine as _};
 use chrono::TimeZone;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,6 +19,7 @@ use uuid::Uuid;
 
 use crate::entities::character_card;
 use crate::utils::hash::compute_json_hash;
+use crate::utils::token::calculate_card_tokens;
 
 #[derive(Serialize, Deserialize)]
 pub struct ImportResult {
@@ -335,6 +337,9 @@ async fn save_card_model(
         "[]".to_string()
     };
 
+    // 计算 token
+    let counts = calculate_card_tokens(&json);
+
     // 版本号独立管理，不从角色卡 JSON 中提取，默认为 None（前端显示为 1.0）
     let active_model = character_card::ActiveModel {
         id: Set(uuid),
@@ -357,6 +362,10 @@ async fn save_card_model(
         user_note: Set(None),
         metadata_modified: Set(false),
         data_hash: Set(Some(data_hash)),
+        token_count_total: Set(Some(counts.total)),
+        token_count_spec: Set(Some(counts.spec)),
+        token_count_wb: Set(Some(counts.wb)),
+        token_count_other: Set(Some(counts.other)),
     };
 
     active_model
@@ -627,6 +636,17 @@ pub struct ListCardsQuery {
     pub category_id: Option<Uuid>,
     pub search: Option<String>,
     pub tags: Option<String>, // 逗号分隔的标签
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct PaginatedResponse {
+    pub items: Vec<CardListItem>,
+    pub total: u64,
+    pub page: u64,
+    pub page_size: u64,
+    pub total_pages: u64,
 }
 
 #[derive(Serialize)]
@@ -649,7 +669,7 @@ pub struct CardListItem {
 pub async fn list(
     State(db): State<DatabaseConnection>,
     Query(query): Query<ListCardsQuery>,
-) -> Result<Json<Vec<CardListItem>>, (StatusCode, String)> {
+) -> Result<Json<PaginatedResponse>, (StatusCode, String)> {
     let mut select =
         character_card::Entity::find().filter(character_card::Column::DeletedAt.is_null());
 
@@ -665,13 +685,30 @@ pub async fn list(
         }
     }
 
-    let cards = select
+    // Pagination defaults
+    let page = query.page.unwrap_or(1).max(1);
+    let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
+
+    let paginator = select
         .order_by_desc(character_card::Column::CreatedAt)
-        .all(&db)
+        .paginate(&db, page_size);
+
+    let total = paginator
+        .num_items()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let response: Vec<CardListItem> = cards
+    let total_pages = paginator
+        .num_pages()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let cards = paginator
+        .fetch_page(page - 1)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let items: Vec<CardListItem> = cards
         .into_iter()
         .map(|c| {
             let tags: Vec<String> = serde_json::from_str(&c.tags).unwrap_or_default();
@@ -692,7 +729,13 @@ pub async fn list(
         })
         .collect();
 
-    Ok(Json(response))
+    Ok(Json(PaginatedResponse {
+        items,
+        total,
+        page,
+        page_size,
+        total_pages,
+    }))
 }
 
 /// GET /api/cards/:id - 获取角色卡详情
@@ -705,6 +748,24 @@ pub async fn get_details(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "角色卡不存在".to_string()))?;
+
+    // 如果还没有 token 统计数据（或者是旧数据），则计算并更新
+    if card.token_count_total.is_none() {
+        let json: Value = serde_json::from_str(&card.data).unwrap_or(Value::Null);
+        let counts = calculate_card_tokens(&json);
+
+        let mut active: character_card::ActiveModel = card.clone().into();
+        active.token_count_total = Set(Some(counts.total));
+        active.token_count_spec = Set(Some(counts.spec));
+        active.token_count_wb = Set(Some(counts.wb));
+        active.token_count_other = Set(Some(counts.other));
+
+        let updated = active
+            .update(&db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        return Ok(Json(updated));
+    }
 
     Ok(Json(card))
 }
@@ -739,7 +800,7 @@ pub async fn update(
     State(db): State<DatabaseConnection>,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateCardRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<character_card::Model>, (StatusCode, String)> {
     let existing = character_card::Entity::find_by_id(id)
         .one(&db)
         .await
@@ -922,16 +983,23 @@ pub async fn update(
             )
         })?;
         active.data = Set(new_json_str);
+
+        // Recalculate tokens
+        let counts = calculate_card_tokens(&current_json);
+        active.token_count_total = Set(Some(counts.total));
+        active.token_count_spec = Set(Some(counts.spec));
+        active.token_count_wb = Set(Some(counts.wb));
+        active.token_count_other = Set(Some(counts.other));
     }
 
     active.updated_at = Set(chrono::Utc::now().naive_utc());
 
-    active
+    let updated_model = active
         .update(&db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(StatusCode::OK)
+    Ok(Json(updated_model))
 }
 
 /// POST /api/cards/:id/cover - Update cover image

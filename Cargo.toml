@@ -104,3 +104,4 @@ migration = { path = "migration" }
 reqwest.workspace = true
 flate2 = "1.1.5"
 regex = "1.12.2"
+tiktoken-rs = "0.9.1"

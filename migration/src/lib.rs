@@ -6,7 +6,6 @@ mod m20240101_000001_create_tables;
 mod m20240102_000002_create_cards;
 mod m20240103_000003_add_card_fields;
 mod m20240103_000004_add_deleted_at;
-
 mod m20240103_000005_add_detail_fields;
 mod m20250104_000001_create_ai_channels;
 mod m20250104_000002_add_default_global_prompt;
@@ -17,6 +16,7 @@ mod m20260109_000001_add_history_pagination_settings;
 mod m20260109_000002_add_regex_scripts_to_history;
 mod m20260113_000001_create_character_versions;
 mod m20260113_000002_add_data_hash;
+mod m20260114_000001_add_token_counts;
 
 pub struct Migrator;
 
@@ -38,6 +38,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260109_000002_add_regex_scripts_to_history::Migration),
             Box::new(m20260113_000001_create_character_versions::Migration),
             Box::new(m20260113_000002_add_data_hash::Migration),
+            Box::new(m20260114_000001_add_token_counts::Migration),
         ]
     }
 }
