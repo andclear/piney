@@ -197,14 +197,20 @@
 </script>
 
 <div class={cn(
-    "border rounded-lg bg-card text-card-foreground shadow-sm group transition-all hover:border-primary/50 relative"
+    "rounded-xl border bg-card/50 shadow-sm transition-all duration-300 group relative",
+    isOpen
+        ? "border-primary ring-1 ring-primary/100 shadow-md bg-card z-20"
+        : "border-border/40 hover:!bg-accent/40 hover:!border-border/40 hover:!z-50",
 )}>
     {#if isAnyDirty}
         <span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm z-20 animate-pulse border border-background"></span>
     {/if}
     <!-- Header -->
     <div 
-        class="flex items-center gap-3 p-3 select-none cursor-pointer"
+        class={cn(
+            "sticky top-0 z-10 flex items-center gap-3 p-3 cursor-pointer select-none transition-colors",
+            isOpen ? "bg-primary/5 rounded-t-xl" : "bg-transparent group-hover:!bg-accent/40 rounded-xl"
+        )}
         onclick={() => isOpen = !isOpen}
     >
         <!-- Drag Handle (Visual only here, actual drag logic in parent) -->
@@ -233,7 +239,7 @@
                     localDisabled && "text-muted-foreground line-through decoration-muted-foreground/50",
                     isAnyDirty && "text-amber-500"
                 )}>
-                    {localName || "未命名脚本"}
+                    {localName || "未命名正则"}
                 </span>
             </div>
         </div>
@@ -281,7 +287,7 @@
             <div class="grid gap-4 sm:grid-cols-2">
                 <!-- Script Name -->
                 <div class="space-y-2 sm:col-span-2">
-                    <Label>脚本名称</Label>
+                    <Label>正则名称</Label>
                     <Input 
                         bind:value={localName} 
                         placeholder="例如: 移除多余空行" 

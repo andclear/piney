@@ -552,40 +552,42 @@
         "rounded-xl border bg-card/50 shadow-sm transition-all duration-300 group",
         isOpen
             ? "border-primary ring-1 ring-primary/100 shadow-md bg-card"
-            : "border-border/40 hover:border-primary/100",
+            : "border-border/40 hover:bg-accent/40",
     )}
 >
     <!-- Header / Toggle -->
     <div
-        class="sticky top-0 z-10 bg-card flex items-center gap-3 p-3 cursor-pointer select-none rounded-t-xl"
+        class={cn(
+            "sticky top-0 z-10 flex items-center gap-3 p-3 cursor-pointer select-none transition-colors",
+            isOpen ? "bg-primary/5 rounded-t-xl" : "bg-card group-hover:bg-accent/40 rounded-xl"
+        )}
         onclick={() => (isOpen = !isOpen)}
     >
+        <!-- Drag Handle -->
         <div class="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
             <GripVertical class="h-4 w-4" />
         </div>
 
-        <button class="p-1 rounded-md hover:bg-background/20 transition-colors">
-            {#if isOpen}
-                <ChevronDown class="h-4 w-4 opacity-70" />
-            {:else}
-                <ChevronRight class="h-4 w-4 opacity-70" />
-            {/if}
-        </button>
+        <!-- Enable Switch -->
+        <div onclick={(e) => e.stopPropagation()}>
+            <Switch
+                bind:checked={localEnabled}
+                class="data-[state=checked]:bg-primary data-[state=unchecked]:bg-input scale-75 origin-left"
+            />
+        </div>
 
-        <div class="flex-1 flex items-center gap-3 overflow-hidden">
-            <!-- Enable Switch -->
-            <div onclick={(e) => e.stopPropagation()}>
-                <Switch
-                    bind:checked={localEnabled}
-                    class="data-[state=checked]:bg-primary data-[state=unchecked]:bg-input scale-75 origin-left"
-                />
+        <div class="flex-1 flex items-center gap-2 overflow-hidden">
+             <!-- Chevron (Rotating) -->
+             <div class={cn("transition-transform duration-200", isOpen && "rotate-180")}>
+                <ChevronDown class="h-4 w-4 text-muted-foreground" />
             </div>
 
+            <!-- Title -->
             <span
                 class={cn(
                     "font-medium truncate max-w-[200px] md:max-w-xs transition-colors",
                     !localEnabled &&
-                        "text-muted-foreground line-through decoration-transparent", // Grey out if disabled
+                        "text-muted-foreground line-through decoration-transparent", 
                     isEntryDirty && "text-amber-500",
                 )}>{localComment || "未使用标题"}</span
             >

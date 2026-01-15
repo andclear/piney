@@ -154,7 +154,7 @@
                     <ContextMenu.Trigger>
                         <div
                             class={cn(
-                                "group relative rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md cursor-pointer overflow-hidden",
+                                "group relative rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:!bg-accent/40 hover:shadow-md cursor-pointer",
                                 isSelectionMode &&
                                     selectedItemIds.has(item.id) &&
                                     "bg-primary/5 ring-2 ring-primary",

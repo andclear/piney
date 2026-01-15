@@ -495,7 +495,7 @@
     </div>
 
     <!-- Entries List -->
-    <div class="space-y-4 min-h-[300px]">
+    <div class="space-y-4 min-h-[300px] p-4">
         {#if filteredEntries.length > 0}
             {#each filteredEntries as entry, index (entry.id || entry.uid)}
                 <div
@@ -507,10 +507,11 @@
                     ondrop={(e) => handleDrop(e, index)}
                     ondragend={handleDragEnd}
                     class={cn(
-                        "transition-all duration-200",
+                        "transition-all duration-200 relative",
                         draggedItemIdx === index && "opacity-50 scale-95",
                         dragOverItemIdx === index &&
                             "border-t-2 border-primary pt-2",
+                        openEntries[entry.id || entry.uid] ? "z-20" : "z-0 hover:!z-50"
                     )}
                 >
                     <WorldInfoEntry

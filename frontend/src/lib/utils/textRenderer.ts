@@ -3,7 +3,7 @@ import { processContentWithScripts, type RegexScript } from "$lib/utils/regexPro
 /**
  * 通用文本渲染函数
  * @param text 原始文本
- * @param cardRegex 角色卡正则脚本列表
+ * @param cardRegex 角色卡正则列表
  * @returns 处理后的 HTML 字符串
  */
 export function renderContent(text: string, cardRegex: RegexScript[] = []): string {

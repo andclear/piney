@@ -530,12 +530,12 @@
 
             if (!res.ok) throw new Error("保存失败");
             await loadCard();
-            toast.success("正则脚本已保存");
+            toast.success("正则已保存");
             lastSaved = Date.now();
             updateFormSnapshot();
         } catch (e) {
             console.error(e);
-            toast.error("保存正则脚本失败", { description: String(e) });
+            toast.error("保存正则失败", { description: String(e) });
         } finally {
             isSavingWorldInfo = false;
         }
@@ -640,7 +640,7 @@
         { id: "overview", label: "概览", icon: FileText },
         { id: "persona", label: "设定", icon: IdCard },
         { id: "world_info", label: "世界书", icon: Globe }, 
-        { id: "regex", label: "正则脚本", icon: Regex },
+        { id: "regex", label: "正则", icon: Regex },
         { id: "versions", label: "版本历史", icon: GitBranch }, // New Tab
         { id: "chat", label: "聊天记录", icon: History },
     ];
@@ -1280,7 +1280,7 @@
                     <div class="flex items-center justify-between mb-4">
                         <div class="space-y-1">
                             <h2 class="text-lg font-semibold">
-                                正则脚本
+                                正则
                             </h2>
                             <p class="text-xs text-muted-foreground">
                                 配置针对此角色的正则表达式替换规则
@@ -1294,7 +1294,7 @@
                             {#if isSavingWorldInfo}
                                 <Loader2 class="h-4 w-4 animate-spin" /> 保存中...
                             {:else}
-                                <Save class="h-4 w-4" /> 保存脚本
+                                <Save class="h-4 w-4" /> 保存正则
                             {/if}
                         </Button>
                     </div>

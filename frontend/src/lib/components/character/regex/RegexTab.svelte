@@ -1,4 +1,5 @@
 <script lang="ts">
+    // Trigger HMR update
     import { Input } from "$lib/components/ui/input";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
@@ -137,7 +138,7 @@
     function addScript() {
         const newScript = {
             id: generateUUID(),
-            scriptName: "新脚本",
+            scriptName: "新正则",
             findRegex: "",
             replaceString: "",
             trimStrings: [],
@@ -155,7 +156,7 @@
         // Use assignment to trigger reactivity (Svelte 5 legacy/hybrid mode safety)
         data.extensions.regex_scripts = [...data.extensions.regex_scripts, newScript];
         onChange();
-        toast.success("已添加新脚本");
+        toast.success("已添加新正则");
     }
 
     function triggerImport() {
@@ -190,7 +191,7 @@
                     // Sanitize and Normalize
                     return {
                         id: generateUUID(), // Always generate new ID
-                        scriptName: item.scriptName || "导入的脚本",
+                        scriptName: item.scriptName || "导入的正则",
                         findRegex: item.findRegex || "",
                         replaceString: item.replaceString || "",
                         trimStrings: Array.isArray(item.trimStrings) ? item.trimStrings : [],
@@ -206,14 +207,14 @@
                 });
 
                 if (validScripts.length === 0) {
-                    toast.error("未找到有效的正则脚本");
+                    toast.error("未找到有效的正则");
                     return;
                 }
 
                 if (!data.extensions.regex_scripts) data.extensions.regex_scripts = [];
                 data.extensions.regex_scripts = [...data.extensions.regex_scripts, ...validScripts];
                 onChange(); // Trigger dirty state
-                toast.success(`成功导入 ${validScripts.length} 个脚本`);
+                toast.success(`成功导入 ${validScripts.length} 个正则`);
                 
             } catch (err) {
                 console.error("Import failed", err);
@@ -230,7 +231,7 @@
         // Deletion marks state as dirty (unsaved), so user can revert by not saving.
         data.extensions.regex_scripts = data.extensions.regex_scripts.filter((s: any) => s.id !== scriptId);
         onChange();
-        toast.success("脚本已删除");
+        toast.success("正则已删除");
     }
 
     // Drag and Drop Logic
@@ -284,7 +285,7 @@
             <Search class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
                 type="search"
-                placeholder="搜索脚本名称..."
+                placeholder="搜索正则名称..."
                 class="pl-9 h-9"
                 bind:value={searchTerm}
             />
@@ -303,21 +304,21 @@
             </Button>
             <Button size="sm" class="gap-2 border-primary bg-background text-foreground hover:bg-primary/10" onclick={addScript} variant="outline">
                 <Plus class="h-4 w-4" />
-                <span class="hidden sm:inline">添加脚本</span>
+                <span class="hidden sm:inline">添加正则</span>
             </Button>
         </div>
     </div>
 
     <!-- List -->
     <ScrollArea class="flex-1 -mx-2 px-2">
-        <div class="space-y-3 pb-8">
+        <div class="space-y-3 p-3 pb-8">
             {#if filteredScripts.length === 0}
                 <div class="flex flex-col items-center justify-center py-12 text-muted-foreground text-sm border border-dashed rounded-lg bg-muted/30">
                     <Regex class="h-8 w-8 mb-2 opacity-50" />
                     {#if searchTerm}
-                        <p>未找到匹配的脚本</p>
+                        <p>未找到匹配的正则</p>
                     {:else}
-                        <p>暂无正则脚本</p>
+                        <p>暂无正则</p>
                     {/if}
 </div>
             {:else}
@@ -337,9 +338,10 @@
                         ondrop={(e) => handleDrop(e, realIndex)}
                         ondragend={handleDragEnd}
                         class={cn(
-                            "transition-all duration-200", 
+                            "transition-all duration-200 relative", 
                             draggedIndex === realIndex && "opacity-50 scale-95",
-                            dragOverItemIdx === realIndex && "border-t-2 border-primary pt-2"
+                            dragOverItemIdx === realIndex && "border-t-2 border-primary pt-2",
+                            openScripts[script.id] ? "z-20" : "z-0 hover:!z-50"
                         )}
                     >
                         <RegexItem 
@@ -360,7 +362,7 @@
     <div class="text-[10px] text-muted-foreground text-center border-t pt-2">
         {#if !searchTerm && scripts.length > 1}
             <span class="flex items-center justify-center gap-1">
-                <ArrowUpDown class="h-3 w-3" /> 拖拽可调整脚本执行顺序
+                <ArrowUpDown class="h-3 w-3" /> 拖拽可调整正则执行顺序
             </span>
         {/if}
     </div>
@@ -373,7 +375,7 @@
                 <AlertTriangle class="h-5 w-5" /> 未保存的更改
             </Dialog.Title>
             <Dialog.Description>
-                您有未保存的正则脚本更改。离开页面将丢失这些更改。确定要离开吗？
+                您有未保存的正则更改。离开页面将丢失这些更改。确定要离开吗？
             </Dialog.Description>
         </Dialog.Header>
         <Dialog.Footer>
