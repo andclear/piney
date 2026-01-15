@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { createSrcContent, isFrontend } from '$lib/utils/renderUtils';
+    import { createSrcContent, isFrontend, replaceVhInContent } from '$lib/utils/renderUtils';
 
     // Simple ID generator since strict UUID isn't required for iframe IDs
     function generateId() {
@@ -14,8 +14,11 @@
 
     let iframeRef: HTMLIFrameElement;
     let iframeId = `th-render-${generateId()}`;
+    
+    // State
     let srcifiedContent = $state('');
     let isDark = $state(false);
+    let isLoaded = $state(false);
 
     // Watch for class changes on <html> element to detect dark mode
     let observer: MutationObserver;
@@ -51,17 +54,60 @@
         }
     });
 
-    // Validated effect that depends on isDark state
+    // Handle iframe load event
+    function handleLoad() {
+        console.log("TH-Render: Iframe Loaded", iframeId);
+        isLoaded = true;
+        // Trigger an immediate update just in case content changed while loading
+        if (iframeRef && iframeRef.contentWindow) {
+            const processedContent = replaceVhInContent(content);
+            try {
+                iframeRef.contentWindow.postMessage({ 
+                    type: 'TH_UPDATE_CONTENT', 
+                    content: processedContent,
+                    isDark: isDark 
+                }, '*');
+            } catch (e) {
+                console.error("TH-Render: PostMessage Failed", e);
+            }
+        }
+    }
+
+    // Effect to handle content updates
     $effect(() => {
-        // We just reference isDark here so the effect re-runs when it changes
-        const currentDark = isDark; 
-        if (content && isFrontend(content)) {
-             srcifiedContent = createSrcContent(content, useBlobUrl, currentDark);
+        // Capture dependent values
+        const currentContent = content;
+        const currentDark = isDark;
+        const loaded = isLoaded;
+
+        if (loaded && iframeRef && iframeRef.contentWindow) {
+             // Hot Update: Post message update without reloading iframe
+             const processedContent = replaceVhInContent(currentContent);
+             iframeRef.contentWindow.postMessage({ 
+                 type: 'TH_UPDATE_CONTENT', 
+                 content: processedContent,
+                 isDark: currentDark 
+             }, '*');
         } else {
-             srcifiedContent = createSrcContent(content, useBlobUrl, currentDark);
+             // Initial Load logic (or if not loaded yet)
+             // Only update srcifiedContent if it's materially different effectively (though Svelte handles derived)
+             // or if we haven't loaded yet.
+             
+             // To prevent infinite reload loops if srcdoc updates reload the iframe -> onload -> effect:
+             // We generally only set srcifiedContent ONCE or when we specifically want to reload.
+             // If we rely on srcdoc for the first paint.
+             
+             if (!srcifiedContent) {
+                 srcifiedContent = createSrcContent(currentContent, useBlobUrl, currentDark);
+             }
+             // If content changes significantly while !isLoaded, we might want to update srcifiedContent?
+             // But simpler to just let handleLoad sync it.
         }
     });
     
+    // Also watch for major mode changes that might require full reload (e.g. Blob vs raw)
+    // But for now, we stick to srcdoc usually.
+
     function handleMessage(event: MessageEvent) {
         if (event.data?.type === 'TH_ADJUST_IFRAME_HEIGHT' && event.data?.iframe_name === iframeId) {
             if (iframeRef) {
@@ -81,8 +127,7 @@
         window.addEventListener('resize', handleResize);
     });
     
-    // Helper to derive Blob URL if mode is switched (simplified for this version to just use srcdoc for stability first)
-    // If useBlobUrl is true, we should convert srcifiedContent to a blob url.
+    // Helper to derive Blob URL if mode is switched
     let finalSrc = $derived(useBlobUrl ? URL.createObjectURL(new Blob([srcifiedContent], { type: 'text/html' })) : undefined);
     let finalSrcDoc = $derived(useBlobUrl ? undefined : srcifiedContent);
 
@@ -95,7 +140,8 @@
         name={iframeId}
         src={finalSrc}
         srcdoc={finalSrcDoc}
-        class="w-full border-none overflow-hidden block"
+        onload={handleLoad}
+        class="w-full border-none overflow-hidden block bg-white/5"
         style="background:transparent;"
         sandbox="allow-scripts allow-popups allow-forms allow-same-origin allow-modals"
         loading="lazy"

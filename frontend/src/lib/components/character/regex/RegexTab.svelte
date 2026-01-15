@@ -2,7 +2,7 @@
     import { Input } from "$lib/components/ui/input";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
-    import { Plus, Search, Regex, ArrowUpDown } from "lucide-svelte";
+    import { Plus, Search, Regex, ArrowUpDown, FileJson } from "lucide-svelte";
     import RegexItem from "./RegexItem.svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { cn } from "$lib/utils";
@@ -34,6 +34,7 @@
     let draggedIndex: number | null = $state(null);
     let dragOverItemIdx: number | null = $state(null);
     let openScripts: Record<string, boolean> = $state({});
+    let fileInput: HTMLInputElement;
 
     // --- Dirty Checking Logic ---
     let originalScripts: any = $state(null);
@@ -157,6 +158,73 @@
         toast.success("已添加新脚本");
     }
 
+    function triggerImport() {
+        fileInput?.click();
+    }
+
+    function handleImportScripts(event: Event) {
+        const input = event.target as HTMLInputElement;
+        const file = input.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const content = e.target?.result as string;
+                const json = JSON.parse(content);
+                
+                // Allow single object or array
+                const items = Array.isArray(json) ? json : [json];
+                let importedCount = 0;
+
+                const validScripts = items.filter((item: any) => {
+                    // Basic Validation: Must look like a regex script
+                    // Check for key fields present in addScript
+                    return (
+                        typeof item === 'object' &&
+                        item !== null &&
+                        'scriptName' in item &&
+                        'findRegex' in item
+                    );
+                }).map((item: any) => {
+                    // Sanitize and Normalize
+                    return {
+                        id: generateUUID(), // Always generate new ID
+                        scriptName: item.scriptName || "导入的脚本",
+                        findRegex: item.findRegex || "",
+                        replaceString: item.replaceString || "",
+                        trimStrings: Array.isArray(item.trimStrings) ? item.trimStrings : [],
+                        placement: Array.isArray(item.placement) ? item.placement : [2],
+                        disabled: item.disabled === true,
+                        markdownOnly: item.markdownOnly !== false, // Default true if missing? or strict?
+                        promptOnly: item.promptOnly === true,
+                        runOnEdit: item.runOnEdit !== false,
+                        substituteRegex: typeof item.substituteRegex === 'number' ? item.substituteRegex : 0,
+                        minDepth: typeof item.minDepth === 'number' ? item.minDepth : null,
+                        maxDepth: typeof item.maxDepth === 'number' ? item.maxDepth : null
+                    };
+                });
+
+                if (validScripts.length === 0) {
+                    toast.error("未找到有效的正则脚本");
+                    return;
+                }
+
+                if (!data.extensions.regex_scripts) data.extensions.regex_scripts = [];
+                data.extensions.regex_scripts = [...data.extensions.regex_scripts, ...validScripts];
+                onChange(); // Trigger dirty state
+                toast.success(`成功导入 ${validScripts.length} 个脚本`);
+                
+            } catch (err) {
+                console.error("Import failed", err);
+                toast.error("导入失败：无效的 JSON 文件");
+            } finally {
+                input.value = ""; // Reset
+            }
+        };
+        reader.readAsText(file);
+    }
+
     function deleteScript(scriptId: string) {
         // No confirmation dialog as requested.
         // Deletion marks state as dirty (unsaved), so user can revert by not saving.
@@ -222,6 +290,17 @@
             />
         </div>
         <div class="flex items-center gap-2">
+            <input
+                bind:this={fileInput}
+                type="file"
+                accept=".json"
+                class="hidden"
+                onchange={handleImportScripts}
+            />
+            <Button size="sm" class="gap-2 border-dashed border-muted-foreground/50 bg-background text-foreground hover:bg-muted" onclick={triggerImport} variant="outline">
+                <FileJson class="h-4 w-4" />
+                <span class="hidden sm:inline">导入正则</span>
+            </Button>
             <Button size="sm" class="gap-2 border-primary bg-background text-foreground hover:bg-primary/10" onclick={addScript} variant="outline">
                 <Plus class="h-4 w-4" />
                 <span class="hidden sm:inline">添加脚本</span>

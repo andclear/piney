@@ -96,13 +96,26 @@ const predefine_script = `
         } catch(e) { } // Ignore SecurityError if parent is cross-origin
         
         // Mock SillyTavern Context
-        const mockContext = { getContext: () => ({}) };
+        const mockContext = { 
+            getContext: () => ({}),
+            getChatMessages: () => [],
+            characters: [],
+            chat: []
+        };
         let parentST = {};
         try { parentST = window.parent.SillyTavern || {}; } catch(e){}
 
         Object.defineProperty(window, 'SillyTavern', {
             get: () => (parentST.getContext ? parentST.getContext() : mockContext.getContext())
         });
+
+        // Mock global functions likely used by scripts
+        window.getChatMessages = window.getChatMessages || (() => []);
+        window.getCurrentMessageId = window.getCurrentMessageId || (() => 0);
+        window.this_chid = window.this_chid || 0; 
+        
+        // Mock STscript (often used in complex cards)
+        window.STscript = window.STscript || {};
 
         const iframeId = window.frameElement?.id || window.name;
         if (iframeId) {
@@ -255,8 +268,47 @@ const dark_mode_sync_script = `
 })();
 `;
 
+// Dynamic Update Listener
+const dynamic_update_script = `
+(function(){
+    try {
+        window.addEventListener('message', function(event) {
+            if (event.data && event.data.type === 'TH_UPDATE_CONTENT') {
+                if (event.data.content !== undefined) {
+                    document.body.innerHTML = event.data.content;
+                }
+                if (event.data.isDark !== undefined) {
+                    if (event.data.isDark) document.documentElement.classList.add('dark');
+                    else document.documentElement.classList.remove('dark');
+                }
+            }
+        });
+    } catch(e) { console.error("Dynamic Update Error", e); }
+})();
+`;
+
 // Section 6.2: Create Src Content
 // Section 6.2: Create Src Content
+const prevent_nav_script = `
+(function(){
+    document.addEventListener('click', function(e) {
+        const a = e.target.closest('a');
+        if (a) {
+            const href = a.getAttribute('href');
+            // Prevent navigation for placeholder links which cause iframe to load parent page
+            if (!href || href === '#' || href.startsWith('#')) {
+                e.preventDefault();
+            } else {
+                 // For external links, force new tab to avoid breaking iframe
+                 if (href.startsWith('http')) {
+                     a.target = '_blank';
+                 }
+            }
+        }
+    });
+})();
+`;
+
 export function createSrcContent(content: string, useBlobUrl: boolean = false, isDark: boolean = false): string {
     content = replaceVhInContent(content);
 
@@ -268,7 +320,7 @@ export function createSrcContent(content: string, useBlobUrl: boolean = false, i
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-${useBlobUrl ? `<base href="${window.location.origin}"/>` : ''}
+<base href="about:blank">
 <style>
 :root { color-scheme: light dark; }
 *,*::before,*::after{box-sizing:border-box;}
@@ -280,6 +332,7 @@ body{margin:0!important;padding:0;overflow:hidden!important;max-width:100%!impor
 ${third_party}
 <!-- Inject Scripts Inline to avoid URL issues -->
 <script>${predefine_script}</script>
+<script>${prevent_nav_script}</script>
 <script src="https://testingcf.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script> 
 <!-- Added Lodash explicit load just in case -->
 <script>${adjust_viewport_script}</script>
@@ -324,6 +377,7 @@ ${third_party}
     })();
 </script>
 <script>${dark_mode_sync_script}</script>
+<script>${dynamic_update_script}</script>
 </head>
 <body>
 ${content}

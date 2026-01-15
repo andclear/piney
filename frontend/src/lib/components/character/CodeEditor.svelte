@@ -30,12 +30,14 @@
         value = $bindable(""), 
         language = $bindable("html"),
         placeholder: placeholderText = "",
-        class: className = ""
+        class: className = "",
+        toolbarActions
     } = $props<{
         value: string;
         language?: "html" | "css" | "javascript";
         placeholder?: string;
-        class?: string;
+        lastSaved?: number;
+        toolbarActions?: any;
     }>();
 
     let editorElement: HTMLDivElement;
@@ -69,8 +71,8 @@
                 indent_size: 2,
                 preserve_newlines: true,
                 max_preserve_newlines: 2,
-                wrap_line_length: 0,
-                wrap_attributes: 'force-expand-multiline',
+                wrap_line_length: 120, // Set a reasonable line length
+                wrap_attributes: 'auto', // Don't force expand attributes to new lines
                 wrap_attributes_indent_size: 2,
                 unformatted: [] // Ensure even inline tags are formatted if needed
             });
@@ -326,6 +328,10 @@
                 <AlignLeft class="h-3.5 w-3.5" />
                 <span class="hidden sm:inline">格式化</span>
             </Button>
+
+            {#if toolbarActions}
+                {@render toolbarActions()}
+            {/if}
         {/if}
     </div>
 

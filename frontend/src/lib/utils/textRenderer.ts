@@ -9,8 +9,10 @@ import { processContentWithScripts, type RegexScript } from "$lib/utils/regexPro
 export function renderContent(text: string, cardRegex: RegexScript[] = []): string {
     if (!text) return "";
 
-    // 1. 标准化换行
-    let res = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // 1. 标准化换行 (Unescape literal \n too, as users often expect this in raw text processing)
+    let res = text.replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\\n/g, '\n'); // Handle literal \n
 
     // 2. 正则替换 (仅角色卡正则)
     res = processContentWithScripts(res, cardRegex);
@@ -132,6 +134,7 @@ function processTextNodes(element: HTMLElement): void {
             hasChanges = true;
         }
 
+
         // 删除线 ~~text~~
         if (text.includes('~~')) {
             text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
@@ -154,7 +157,25 @@ function processTextNodes(element: HTMLElement): void {
             hasChanges = true;
         }
 
+        // 图片 ![alt](url) (放在引用处理之后，防止引号被替换)
+        if (text.includes('![') && text.includes('](')) {
+            text = text.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, src) => {
+                return `<img src="${src}" alt="${alt}" style="max-width: 100%; border-radius: 8px; margin: 8px 0;" />`;
+            });
+            hasChanges = true;
+        }
+
+
         // --- 换行处理 ---
+
+        // 段落间距 (Double Newline) -> 1.5x Paragraph Spacing
+        // 1.5 lines gap. Assuming line-height 1.5, 1 line = 1.5em. Gap = 2.25em.
+        // We use a block span to create specific spacing.
+        if (/\n\s*\n/.test(text)) {
+            text = text.replace(/\n\s*\n/g, '<span style="display:block; height: 2.25em; width: 100%;"></span>');
+            hasChanges = true;
+        }
+
         // 移除白名单限制：所有标签内的文本 \n 都转换为 <br>
         // 结构性的换行已在 regex 步骤 (><) 中处理，此处仅处理内容换行
         if (text.includes('\n')) {
@@ -164,8 +185,22 @@ function processTextNodes(element: HTMLElement): void {
 
         if (hasChanges) {
             const span = document.createElement('span');
+            // Only apply Z-index fix if text is a direct child of the container (likely the main greeting text)
+            // This prevents breaking layout inside injected HTML templates (which might rely on specific stacking)
+            if (parent === element) {
+                span.style.cssText = "position: relative; z-index: 1;";
+            }
             span.innerHTML = text;
             parent.replaceChild(span, node);
+        } else {
+            // Even if no changes, wrap in relative span to fix Z-Index stacking issues
+            // BUT ONLY for root level text
+            if (parent === element && text.trim().length > 0) {
+                const span = document.createElement('span');
+                span.style.cssText = "position: relative; z-index: 1;";
+                span.textContent = text;
+                parent.replaceChild(span, node);
+            }
         }
     });
 }

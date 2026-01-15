@@ -33,10 +33,13 @@ export function processContentWithScripts(content: string, scripts: RegexScript[
             let flags = "g"; // default global
 
             // Check if pattern is enclosed in slashes with flags
-            const match = pattern.match(/^\/(.*?)\/([gimsuy]*)$/);
+            // Use greedy match (.*) to find the LAST slash
+            const match = pattern.trim().match(/^\/(.*)\/(.*)$/);
             if (match) {
                 pattern = match[1];
-                flags = match[2] || "g";
+                // Filter only valid flags, ignore garbage like illegal backslashes
+                const validFlags = match[2].split('').filter(c => "gimsuy".includes(c)).join('');
+                flags = validFlags || "g";
             }
 
             const regex = new RegExp(pattern, flags);
@@ -47,6 +50,7 @@ export function processContentWithScripts(content: string, scripts: RegexScript[
             replacement = replacement
                 .replace(/\\n/g, '\n')
                 .replace(/\\r/g, '\r')
+                .replace(/\\"/g, '"') // Fix for users pasting JSON-escaped strings
                 .replace(/\\t/g, '\t');
 
             // Special handling for {{saved:x}} macro? ST supports it, maybe skip for now or keep simple.

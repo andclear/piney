@@ -21,6 +21,8 @@
     } from "lucide-svelte";
     import * as Tooltip from "$lib/components/ui/tooltip";
     import RichTextarea from "$lib/components/character/RichTextarea.svelte";
+    import { processContentWithScripts, type RegexScript } from "$lib/utils/regexProcessor";
+    import { renderContent } from "$lib/utils/textRenderer";
 
     let { 
         script = $bindable(),
@@ -159,6 +161,39 @@
         });
         return labels.join(", ");
     });
+    
+    // Preview Processor for Advanced Preview
+    function processPreview(input: string): string {
+        if (!input) return "";
+        let processed = input;
+        
+        // 1. Trim Strings (Local)
+        if (localTrim && localTrim.length > 0) {
+            for (const trimStr of localTrim) {
+                 // Escape regex special chars in trim string? Usually trim strings are literal?
+                 // ST logic usually trims literally per line or globally?
+                 // Simple literal replacement for now
+                 processed = processed.replaceAll(trimStr, "");
+            }
+        }
+        
+        // 2. Apply Regex (Using local values)
+        // Construct temp script
+        const tempScript: RegexScript = {
+            id: "preview",
+            scriptName: "Preview",
+            findRegex: localFind,
+            replaceString: localReplace,
+            disabled: false,
+            // flags map to what? processContentWithScripts handles it if we follow format.
+        };
+        
+        // Use standard processor for regex part
+        processed = processContentWithScripts(processed, [tempScript]);
+        
+        // 3. Render Markdown/HTML result
+        return renderContent(processed, []);
+    }
 </script>
 
 <div class={cn(
@@ -296,6 +331,14 @@
                         rows={3}
                         isDirty={isReplaceDirty}
                         useCodeEditor={true}
+                        allowPreview={true}
+                        advancedPreview={true}
+                        previewProcessor={processPreview}
+                        regexDebugInfo={{
+                            regex: localFind,
+                            flags: "g", // Assuming 'g' for now, or fetch from where it is stored? In ST it's usually just g or none?
+                            replace: localReplace
+                        }}
                     />
                 </div>
 
