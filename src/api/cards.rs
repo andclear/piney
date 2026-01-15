@@ -638,6 +638,8 @@ pub struct ListCardsQuery {
     pub tags: Option<String>, // 逗号分隔的标签
     pub page: Option<u64>,
     pub page_size: Option<u64>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -685,13 +687,24 @@ pub async fn list(
         }
     }
 
+    // Sorting
+    let order = match query.order.as_deref() {
+        Some("asc") => sea_orm::Order::Asc,
+        _ => sea_orm::Order::Desc,
+    };
+
+    select = match query.sort.as_deref() {
+        Some("name") => select.order_by(character_card::Column::Name, order),
+        Some("created_at") => select.order_by(character_card::Column::CreatedAt, order),
+        Some("updated_at") => select.order_by(character_card::Column::UpdatedAt, order),
+        _ => select.order_by(character_card::Column::UpdatedAt, sea_orm::Order::Desc), // Default: Last updated
+    };
+
     // Pagination defaults
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
 
-    let paginator = select
-        .order_by_desc(character_card::Column::CreatedAt)
-        .paginate(&db, page_size);
+    let paginator = select.paginate(&db, page_size);
 
     let total = paginator
         .num_items()

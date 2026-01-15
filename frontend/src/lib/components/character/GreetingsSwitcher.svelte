@@ -152,7 +152,7 @@
                 class="h-7 text-[10px] px-2 text-muted-foreground hover:text-primary"
                 onclick={() => (isZenMode = true)}
             >
-                <Maximize2 class="mr-1 h-3 w-3" /> 全屏
+                <Maximize2 class="mr-1 h-3 w-3" /> 全屏编辑
             </Button>
         </div>
     </div>

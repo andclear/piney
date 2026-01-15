@@ -12,6 +12,7 @@
     import * as Tabs from "$lib/components/ui/tabs";
     import * as ContextMenu from "$lib/components/ui/context-menu";
     import * as Pagination from "$lib/components/ui/pagination";
+    import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
 
     import * as AlertDialog from "$lib/components/ui/alert-dialog";
     import { longpress } from "$lib/actions/longpress";
@@ -33,7 +34,8 @@
         Hash,
         Upload,
         ChevronLeft,
-        ChevronRight
+        ChevronRight,
+        ArrowUpDown,
     } from "lucide-svelte";
 
     // ============ 类型定义 ============
@@ -88,6 +90,10 @@
     // 拖拽状态
     let draggedCategoryId: string | null = $state(null);
 
+    // 排序状态
+    let currentSort = $state("updated_at");
+    let currentOrder = $state("desc");
+
     // 分页状态
     let currentPage = $state(1);
     let pageSize = $state(20);
@@ -122,6 +128,10 @@
             // Pagination params
             params.set("page", currentPage.toString());
             params.set("page_size", pageSize.toString());
+
+            // Sorting params
+            params.set("sort", currentSort);
+            params.set("order", currentOrder);
 
             if (params.toString()) url += `?${params.toString()}`;
 
@@ -488,7 +498,7 @@
         <div class="space-y-1">
             <h1 class="text-2xl font-bold tracking-tight">我的角色</h1>
             <p class="text-muted-foreground">
-                管理您的 {cards.length} 个角色卡片
+                管理您的 {totalItems} 个角色卡片
             </p>
         </div>
         <div class="flex gap-2">
@@ -542,6 +552,64 @@
                 <List class="h-4 w-4" />
             </button>
         </div>
+
+        <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+                <Button variant="outline" size="icon">
+                    <ArrowUpDown class="h-4 w-4" />
+                </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content align="end">
+                <DropdownMenu.Label>排序方式</DropdownMenu.Label>
+                <DropdownMenu.Separator />
+                <DropdownMenu.RadioGroup value={`${currentSort}-${currentOrder}`}>
+                    <DropdownMenu.RadioItem 
+                        value="updated_at-desc"
+                        onclick={() => {
+                            currentSort = "updated_at";
+                            currentOrder = "desc";
+                            currentPage = 1;
+                            fetchCards();
+                        }}
+                    >
+                        最后更新 (默认)
+                    </DropdownMenu.RadioItem>
+                    <DropdownMenu.RadioItem 
+                        value="created_at-desc"
+                        onclick={() => {
+                            currentSort = "created_at";
+                            currentOrder = "desc";
+                            currentPage = 1;
+                            fetchCards();
+                        }}
+                    >
+                        创建时间 (最新)
+                    </DropdownMenu.RadioItem>
+                    <DropdownMenu.RadioItem 
+                        value="created_at-asc"
+                        onclick={() => {
+                            currentSort = "created_at";
+                            currentOrder = "asc";
+                            currentPage = 1;
+                            fetchCards();
+                        }}
+                    >
+                        创建时间 (最早)
+                    </DropdownMenu.RadioItem>
+                    <DropdownMenu.RadioItem 
+                        value="name-asc"
+                        onclick={() => {
+                            currentSort = "name";
+                            currentOrder = "asc";
+                            currentPage = 1;
+                            fetchCards();
+                        }}
+                    >
+                        名称 (A-Z)
+                    </DropdownMenu.RadioItem>
+                </DropdownMenu.RadioGroup>
+            </DropdownMenu.Content>
+        </DropdownMenu.Root>
 
         <!-- 筛选按钮 -->
         <Sheet.Root bind:open={filterOpen}>
