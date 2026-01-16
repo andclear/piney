@@ -58,7 +58,8 @@ export class AiService {
                 headers: token ? { Authorization: `Bearer ${token}` } : {}
             });
             if (res.ok) {
-                const cards = await res.json();
+                const data = await res.json();
+                const cards = Array.isArray(data) ? data : (data.items || []);
                 const tags = new Set<string>();
                 cards.forEach((c: any) => {
                     let t: string[] = [];

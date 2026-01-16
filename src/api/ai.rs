@@ -420,8 +420,8 @@ pub async fn generate_overview(
     logs.push("开始处理生成概览请求...".to_string());
 
     // 1. 获取 AI 配置
-    logs.push("正在获取 AI 配置 (ai_config_overview)...".to_string());
-    let config_setting = setting::Entity::find_by_id("ai_config_overview")
+    logs.push("正在获取 全局 AI 配置 (ai_config_global)...".to_string());
+    let config_setting = setting::Entity::find_by_id("ai_config_global")
         .one(&db)
         .await
         .map_err(|e| {
@@ -434,7 +434,7 @@ pub async fn generate_overview(
     let channel_id_str = match config_setting {
         Some(s) => s.value,
         None => {
-            let msg = "未配置 AI 概览渠道 (ai_config_overview)";
+            let msg = "未配置 全局 AI 渠道 (ai_config_global)。请在系统设置中指定默认模型。";
             logs.push(format!("错误: {}", msg));
             return Err((
                 StatusCode::BAD_REQUEST,
@@ -819,10 +819,10 @@ pub async fn execute_feature(
     Json(payload): Json<ExecuteFeatureRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<Value>)> {
     // 1. Resolve Config Key
-    let config_key = format!("ai_config_{}", payload.feature_id);
+    let config_key = "ai_config_global";
 
     // 2. Get Channel Config
-    let config_setting = setting::Entity::find_by_id(&config_key)
+    let config_setting = setting::Entity::find_by_id(config_key)
         .one(&db)
         .await
         .map_err(|e| {
@@ -837,9 +837,7 @@ pub async fn execute_feature(
         None => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(
-                    serde_json::json!({"error": format!("Feature '{}' not configured ({} missing)", payload.feature_id, config_key)}),
-                ),
+                Json(serde_json::json!({"error": "没有配置全局AI模型，请到设置页面完成配置"})),
             ));
         }
     };
@@ -847,7 +845,7 @@ pub async fn execute_feature(
     let channel_id = Uuid::parse_str(&channel_id_str).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Invalid Channel ID in configuration"})),
+            Json(serde_json::json!({"error": "没有配置全局AI模型，请到设置页面完成配置"})),
         )
     })?;
 
@@ -863,7 +861,7 @@ pub async fn execute_feature(
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Configured AI Channel not found"})),
+                Json(serde_json::json!({"error": "配置的AI渠道已不存在，请重新配置"})),
             )
         })?;
 

@@ -53,8 +53,7 @@
     let isTestingAll = $state(false);
 
     // Default Assignments (Stored in settings)
-    let configOverview = $state("");
-    let configTranslation = $state("");
+    let configGlobal = $state("");
     let isSavingConfig = $state(false);
 
     // Prompt Configuration
@@ -97,8 +96,7 @@
                 // Settings API returns a Settings object with specific fields
                 // AI config is not yet in the backend Settings struct,
                 // so these will be undefined for now (feature pending backend update)
-                configOverview = res.data.ai_config_overview || "";
-                configTranslation = res.data.ai_config_translation || "";
+                configGlobal = res.data.ai_config_global || "";
                 globalPrompt = res.data.global_prompt || "";
             }
         } catch (e) {
@@ -178,8 +176,7 @@
         try {
             // Update settings
             await api.patch("/settings", {
-                ai_config_overview: configOverview,
-                ai_config_translation: configTranslation,
+                ai_config_global: configGlobal,
             });
             toast.success("默认模型配置已保存");
         } catch (e) {
@@ -427,57 +424,17 @@
                 </Card.Header>
                 <Card.Content class="space-y-6">
                     <div class="grid gap-6 md:grid-cols-2">
-                        <!-- AI 智能概览 -->
+                        <!-- 全局 AI 模型 -->
                         <div class="space-y-2">
-                            <Label for="config-overview">AI 智能概览</Label>
+                            <Label for="config-global">全局 AI 模型</Label>
                             <p class="text-xs text-muted-foreground mb-2">
-                                用于生成角色卡简介、标签推荐。
+                                所有 AI 功能要使用的模型。
                             </p>
-                            <Select type="single" bind:value={configOverview}>
+                            <Select type="single" bind:value={configGlobal}>
                                 <SelectTrigger class="w-full">
-                                    {#if configOverview}
+                                    {#if configGlobal}
                                         {@const selected = channels.find(
-                                            (c) => c.id === configOverview,
-                                        )}
-                                        <span class="truncate">
-                                            {selected
-                                                ? `${selected.name} (${selected.model_id})`
-                                                : "选择渠道..."}
-                                        </span>
-                                    {:else}
-                                        <span class="text-muted-foreground"
-                                            >选择渠道...</span
-                                        >
-                                    {/if}
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="">未配置</SelectItem>
-                                    {#each channels as c}
-                                        <SelectItem
-                                            value={c.id}
-                                            disabled={!c.is_active}
-                                        >
-                                            {c.name} ({c.model_id})
-                                        </SelectItem>
-                                    {/each}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <!-- AI 辅助翻译-->
-                        <div class="space-y-2">
-                            <Label for="config-translation">AI 辅助翻译</Label>
-                            <p class="text-xs text-muted-foreground mb-2">
-                                用于翻译角色卡内容、世界书条目等。
-                            </p>
-                            <Select
-                                type="single"
-                                bind:value={configTranslation}
-                            >
-                                <SelectTrigger class="w-full">
-                                    {#if configTranslation}
-                                        {@const selected = channels.find(
-                                            (c) => c.id === configTranslation,
+                                            (c) => c.id === configGlobal,
                                         )}
                                         <span class="truncate">
                                             {selected

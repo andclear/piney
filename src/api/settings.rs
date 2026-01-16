@@ -27,10 +27,8 @@ pub struct Settings {
     pub items_per_page: i32,
     /// 用户头像
     pub avatar: Option<String>,
-    /// AI 概览功能默认渠道 ID
-    pub ai_config_overview: Option<String>,
-    /// AI 翻译功能默认渠道 ID
-    pub ai_config_translation: Option<String>,
+    /// 全局 AI 默认渠道 ID
+    pub ai_config_global: Option<String>,
     /// 全局提示词
     pub global_prompt: Option<String>,
 }
@@ -51,8 +49,7 @@ pub async fn get(State(db): State<DatabaseConnection>) -> Json<Settings> {
         default_view: "grid".to_string(),
         items_per_page: 20,
         avatar: None,
-        ai_config_overview: None,
-        ai_config_translation: None,
+        ai_config_global: None,
         global_prompt: None,
     };
 
@@ -67,8 +64,7 @@ pub async fn get(State(db): State<DatabaseConnection>) -> Json<Settings> {
             "default_view" => s.default_view = setting.value,
             "items_per_page" => s.items_per_page = setting.value.parse().unwrap_or(20),
             "user_avatar" => s.avatar = Some(setting.value),
-            "ai_config_overview" => s.ai_config_overview = Some(setting.value),
-            "ai_config_translation" => s.ai_config_translation = Some(setting.value),
+            "ai_config_global" => s.ai_config_global = Some(setting.value),
             "global_prompt" => s.global_prompt = Some(setting.value),
             _ => {}
         }
@@ -100,8 +96,7 @@ pub async fn update(
                 "default_view" => "default_view",
                 "items_per_page" => "items_per_page",
                 "avatar" => "user_avatar", // Map 'avatar' to 'user_avatar'
-                "ai_config_overview" => "ai_config_overview",
-                "ai_config_translation" => "ai_config_translation",
+                "ai_config_global" => "ai_config_global",
                 "global_prompt" => "global_prompt",
                 _ => continue,
             };

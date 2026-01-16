@@ -40,7 +40,8 @@
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (res.ok) {
-                cards = await res.json();
+                const data = await res.json();
+                cards = Array.isArray(data) ? data : (data.items || []);
             }
         } catch (e) {
             console.error(e);
