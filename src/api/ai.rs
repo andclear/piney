@@ -648,7 +648,15 @@ Creator Comment: {}
             },
             {"role": "user", "content": user_content}
         ],
-        "temperature": 0.7
+        "temperature": 1.0,
+        "max_tokens": 4096,
+        "safety_settings": [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+        ],
+        "response_format": { "type": "json_object" }
     });
 
     logs.push(format!("正在请求 AI 接口: {}", url));
@@ -870,11 +878,19 @@ pub async fn execute_feature(
     let base = channel.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base);
 
+    // 简化请求体，仅保留 OpenAI 兼容参数
     let body = serde_json::json!({
         "model": channel.model_id,
         "messages": payload.messages,
         "temperature": 0.7
     });
+
+    // 调试日志：打印请求内容
+    tracing::info!("AI Request URL: {}", url);
+    tracing::info!(
+        "AI Request Body: {}",
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
 
     let res = client
         .post(&url)
@@ -884,21 +900,30 @@ pub async fn execute_feature(
         .send()
         .await
         .map_err(|e| {
+            tracing::error!("AI Request Error: {}", e);
             (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error": format!("Request failed: {}", e)})),
             )
         })?;
 
-    if !res.status().is_success() {
-        let err_text = res.text().await.unwrap_or_default();
+    // 获取响应状态和原始文本
+    let status = res.status();
+    let raw_text = res.text().await.unwrap_or_default();
+
+    // 调试日志：打印响应内容
+    tracing::info!("AI Response Status: {}", status);
+    tracing::info!("AI Response Body: {}", raw_text);
+
+    if !status.is_success() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("Provider API Error: {}", err_text)})),
+            Json(serde_json::json!({"error": format!("Provider API Error: {}", raw_text)})),
         ));
     }
 
-    let json: Value = res.json().await.map_err(|e| {
+    let json: Value = serde_json::from_str(&raw_text).map_err(|e| {
+        tracing::error!("JSON Parse Error: {}", e);
         (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("Invalid JSON response: {}", e)})),
