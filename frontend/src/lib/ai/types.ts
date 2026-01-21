@@ -5,6 +5,8 @@ export enum AiFeature {
     OPTIMIZE_WORLDBOOK = 'optimize_worldbook', // 优化世界书
     OPTIMIZE_SCENARIO = 'optimize_scenario', // 优化情景
     TRANSLATE = 'translate', // 翻译
+    GENERATE_CHARACTER = 'generate_character', // 生成角色
+    GENERATE_WORLD_INFO = 'generate_world_info', // 生成世界书
     // DIAGNOSIS = 'diagnosis', 
     // TAG_GENERATION = 'tag_generation'
 }

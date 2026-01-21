@@ -1,9 +1,9 @@
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
 };
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryOrder, Set};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -14,6 +14,21 @@ use crate::entities::world_info;
 pub struct UpdateWorldInfoSchema {
     pub name: Option<String>,
     pub data: Option<Value>,
+}
+
+#[derive(Deserialize)]
+pub struct ListWorldInfoQuery {
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct PaginatedWorldInfoResponse {
+    pub items: Vec<world_info::Model>,
+    pub total: u64,
+    pub page: u64,
+    pub page_size: u64,
+    pub total_pages: u64,
 }
 
 #[derive(Serialize)]
@@ -130,14 +145,37 @@ async fn save_world_info_to_db(
 // --- List ---
 pub async fn list(
     State(db): State<DatabaseConnection>,
+    Query(query): Query<ListWorldInfoQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let items = world_info::Entity::find()
+    let page = query.page.unwrap_or(1).max(1);
+    let page_size = query.page_size.unwrap_or(20).clamp(1, 100);
+
+    let paginator = world_info::Entity::find()
         .order_by_desc(world_info::Column::UpdatedAt)
-        .all(&db)
+        .paginate(&db, page_size);
+
+    let total = paginator
+        .num_items()
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    Ok(Json(items))
+    let total_pages = paginator
+        .num_pages()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let items = paginator
+        .fetch_page(page - 1)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(PaginatedWorldInfoResponse {
+        items,
+        total,
+        page,
+        page_size,
+        total_pages,
+    }))
 }
 
 // --- Get Details ---

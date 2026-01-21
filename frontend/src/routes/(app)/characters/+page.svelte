@@ -19,6 +19,7 @@
     import { API_BASE, resolveUrl } from "$lib/api";
     import { breadcrumbs } from "$lib/stores/breadcrumb";
     import {
+        Download,
         Search,
         Grid3X3,
         List,
@@ -86,6 +87,8 @@
     let loading = $state(true);
     let newCategoryName = $state("");
     let editingCategory: Category | null = $state(null);
+    let createDialogOpen = $state(false);
+    let newCardName = $state("");
 
     // 拖拽状态
     let draggedCategoryId: string | null = $state(null);
@@ -115,6 +118,43 @@
             }
         } catch (e) {
             console.error("获取分类失败", e);
+        }
+    }
+
+    // 新建角色卡
+    let isCreating = $state(false);
+    async function createCard() {
+        if (!newCardName.trim()) {
+            toast.error("角色名称不能为空");
+            return;
+        }
+        if (isCreating) return;
+        isCreating = true;
+        try {
+            const token = localStorage.getItem("auth_token");
+            const res = await fetch(`${API_BASE}/api/cards/create`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ name: newCardName.trim() }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                toast.success("角色卡创建成功");
+                createDialogOpen = false;
+                newCardName = "";
+                goto(`/characters/${data.id}`);
+            } else {
+                const errText = await res.text();
+                toast.error(`创建失败: ${errText}`);
+            }
+        } catch (e) {
+            console.error("创建角色卡失败", e);
+            toast.error("创建角色卡时发生错误");
+        } finally {
+            isCreating = false;
         }
     }
 
@@ -364,6 +404,72 @@
         selectedCardIds = new Set(selectedCardIds); // 触发响应式更新
     }
 
+    async function handleBatchExport() {
+        if (selectedCardIds.size === 0) return;
+        
+        try {
+            const token = localStorage.getItem("auth_token");
+            if (selectedCardIds.size === 1) {
+                // Single Export
+                const id = Array.from(selectedCardIds)[0];
+                const card = cards.find(c => c.id === id);
+                const name = card ? card.name : "character";
+
+                const res = await fetch(`${API_BASE}/api/cards/${id}/export`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                });
+                if (!res.ok) throw new Error("导出失败");
+                
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                
+                const contentType = res.headers.get("content-type") || "";
+                const ext = contentType.includes("application/json") ? "json" : "png";
+                
+                a.download = `${name}.${ext}`; 
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success("导出成功");
+
+            } else {
+                // Batch Export
+                toast.info("正在打包导出...");
+                const ids = Array.from(selectedCardIds);
+                const res = await fetch(`${API_BASE}/api/cards/batch/export`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                    },
+                    body: JSON.stringify({ ids }),
+                });
+
+                if (!res.ok) {
+                    const errText = await res.text();
+                    throw new Error(errText || "Export failed");
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `batch_export_${new Date().toISOString().slice(0, 10)}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success("批量导出成功");
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error("导出失败", { description: String(e) });
+        }
+    }
+
     function handleBatchMove() {
         if (selectedCardIds.size === 0) return;
         targetCategoryId = null; // 默认选中"无分类/全部"？或者让用户选
@@ -506,8 +612,17 @@
         selectedTags = [];
     }
 
+    let searchTimeout: any;
     function handleSearch() {
+        currentPage = 1;
         fetchCards();
+    }
+    
+    function onSearchInput() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            handleSearch();
+        }, 300);
     }
 </script>
 
@@ -525,7 +640,7 @@
                 <Upload class="h-4 w-4" />
                 <a href="/import">导入角色</a>
             </Button>
-            <Button class="gap-2">
+            <Button class="gap-2" onclick={() => { newCardName = ""; createDialogOpen = true; }} disabled={isCreating}>
                 <Plus class="h-4 w-4" />
                 新建角色
             </Button>
@@ -542,7 +657,7 @@
                 placeholder="搜索角色名称、设定..."
                 class="pl-10"
                 bind:value={searchQuery}
-                onkeydown={(e) => e.key === "Enter" && handleSearch()}
+                oninput={onSearchInput}
             />
         </div>
 
@@ -857,6 +972,38 @@
                 </div>
             </Dialog.Content>
         </Dialog.Root>
+
+        <!-- 新建角色弹窗 -->
+        <Dialog.Root bind:open={createDialogOpen}>
+            <Dialog.Content class="sm:max-w-[425px]">
+                <Dialog.Header>
+                    <Dialog.Title>新建角色</Dialog.Title>
+                    <Dialog.Description>
+                        请输入角色的名称以开始创建。
+                    </Dialog.Description>
+                </Dialog.Header>
+                <div class="grid gap-4 py-4">
+                    <div class="grid gap-2">
+                        <Input
+                            id="name"
+                            placeholder="角色名称"
+                            bind:value={newCardName}
+                            onkeydown={(e) => e.key === "Enter" && createCard()}
+                        />
+                    </div>
+                </div>
+                <Dialog.Footer>
+                    <Button variant="outline" onclick={() => createDialogOpen = false}>取消</Button>
+                    <Button onclick={createCard} disabled={isCreating}>
+                        {#if isCreating}
+                            创建中...
+                        {:else}
+                            确定
+                        {/if}
+                    </Button>
+                </Dialog.Footer>
+            </Dialog.Content>
+        </Dialog.Root>
     </div>
 
     <!-- 角色卡列表 -->
@@ -1036,6 +1183,17 @@
                 </div>
                 <div class="h-4 w-px bg-border"></div>
                 <Button size="sm" onclick={handleBatchMove}>移动到分类</Button>
+                <Button 
+                    size="sm" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-600 dark:hover:bg-blue-700"
+                    onclick={handleBatchExport}
+                >
+                    {#if selectedCardIds.size > 1}
+                        批量导出
+                    {:else}
+                        导出
+                    {/if}
+                </Button>
                 <Button
                     size="sm"
                     variant="destructive"

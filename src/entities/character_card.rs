@@ -38,6 +38,8 @@ pub struct Model {
     pub token_count_spec: Option<i32>,
     pub token_count_wb: Option<i32>,
     pub token_count_other: Option<i32>,
+    // 来源标记：import（导入）| local（本地新建）
+    pub source: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

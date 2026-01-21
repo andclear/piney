@@ -1,5 +1,6 @@
 import { API_BASE } from '$lib/api';
 import { PromptBuilder } from './promptBuilder';
+import { CHAR_GEN_NO_YAML, CHAR_GEN_YAML } from './templates';
 import { AiFeature, type PromptVariables } from './types';
 
 export class AiService {
@@ -7,24 +8,37 @@ export class AiService {
     private static readonly MAX_CONCURRENT = 3;
 
     private static async execute(feature: AiFeature, messages: any[], token: string | null) {
-        const res = await fetch(`${API_BASE}/api/ai/execute`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({
-                feature_id: feature,
-                messages
-            })
-        });
+        let lastError;
+        const RETRIES = 1;
 
-        if (!res.ok) {
-            const data = await res.json();
-            throw new Error(data.error || 'AI request failed');
+        for (let attempt = 0; attempt <= RETRIES; attempt++) {
+            try {
+                const res = await fetch(`${API_BASE}/api/ai/execute`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    },
+                    body: JSON.stringify({
+                        feature_id: feature,
+                        messages
+                    })
+                });
+
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || `AI request failed: ${res.status}`);
+                }
+
+                return await res.json();
+            } catch (e) {
+                lastError = e;
+                if (attempt < RETRIES) {
+                    console.warn(`[AiService] ${feature} attempt ${attempt + 1} failed, retrying...`, e);
+                }
+            }
         }
-
-        return res.json();
+        throw lastError;
     }
 
     /**
@@ -241,4 +255,105 @@ export class AiService {
         };
     }
 
+    /**
+     * 生成世界书条目
+     */
+    static async generateWorldInfo(
+        userInput: string,
+        currentWorldInfo: string
+    ): Promise<any[]> {
+        const globalPrompt = await this.getGlobalPrompt();
+        const feature = AiFeature.GENERATE_WORLD_INFO;
+
+        const variables: any = {
+            user_request: userInput,
+            current_world_info: currentWorldInfo,
+            // Required placeholders
+            name: "", description: "", personality: "", first_mes: "", creator_notes: ""
+        };
+
+        const userPrompt = PromptBuilder.buildUserPrompt(feature, variables);
+        const systemPrompt = globalPrompt || "";
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ];
+
+        try {
+            const token = localStorage.getItem("auth_token");
+            const result = await this.execute(feature, messages, token);
+            // Parse OpenAI-compatible response
+            let content = result.choices?.[0]?.message?.content || "";
+            if (!content && result.response) content = result.response; // Fallback
+
+
+
+            // 1. Try to extract JSON array via Regex (Most robust)
+            const jsonMatch = content.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                content = jsonMatch[0];
+            } else {
+                // 2. Fallback cleanup
+                content = content.replace(/^[\s\S]*?```json/i, "").replace(/^[\s\S]*?```/i, "").replace(/```[\s\S]*$/, "").trim();
+            }
+
+            try {
+                return JSON.parse(content);
+            } catch (e) {
+                throw new Error("生成内容无法解析为JSON");
+            }
+        } catch (e: any) {
+            console.error("Generate World Info Error:", e);
+            throw e; // Re-throw to be caught by UI
+        }
+    }
+
+    /**
+     * 生成角色详情
+     */
+    static async generateCharacter(
+        userInput: string,
+        useYaml: boolean,
+        worldInfoContent: string
+    ) {
+        if (this.activeRequests >= this.MAX_CONCURRENT) {
+            throw new Error(`AI 请求队列已满 (${this.activeRequests}/${this.MAX_CONCURRENT})，请稍后再试`);
+        }
+
+        this.activeRequests++;
+        try {
+            const template = useYaml ? CHAR_GEN_YAML : CHAR_GEN_NO_YAML;
+            const globalPrompt = await this.getGlobalPrompt();
+
+            let templateContent = template
+                .replace(/{{user_request}}/g, userInput)
+                .replace(/{{world_info}}/g, worldInfoContent);
+
+            const variables = {
+                task_instruction: templateContent,
+                name: "",
+                description: "",
+                personality: "",
+                first_mes: "",
+                creator_notes: ""
+            };
+
+            const feature = AiFeature.GENERATE_CHARACTER;
+
+            const userPrompt = PromptBuilder.buildUserPrompt(feature, variables);
+            const systemPrompt = globalPrompt || "";
+
+            const messages = [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ];
+
+            const token = localStorage.getItem("auth_token");
+            const response = await this.execute(feature, messages, token);
+            return response.choices?.[0]?.message?.content || "";
+        } finally {
+            this.activeRequests--;
+        }
+    }
 }

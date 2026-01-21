@@ -3,7 +3,12 @@
     import DirtyInput from "$lib/components/common/DirtyInput.svelte";
     import { Button } from "$lib/components/ui/button";
     import { Label } from "$lib/components/ui/label";
-    import { Plus, Globe, Search, ArrowUpDown, Download, ChevronDown, FileDown, FileUp, MoreHorizontal } from "lucide-svelte";
+    import { Plus, Globe, Search, ArrowUpDown, Download, ChevronDown, FileDown, FileUp, MoreHorizontal, Bot, Sparkles, Loader2 } from "lucide-svelte";
+    import { toast } from "svelte-sonner";
+    import { AiFeature } from "$lib/ai/types";
+    import { AiService } from "$lib/ai/service";
+    import * as Dialog from "$lib/components/ui/dialog";
+    import { Textarea } from "$lib/components/ui/textarea";
     import WorldInfoEntry from "./WorldInfoEntry.svelte";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
     import { cn } from "$lib/utils";
@@ -21,6 +26,7 @@
         onChange = () => {},
         mode = "character", // "character" | "global"
         name = $bindable(), // For Global Mode (DB Name)
+        source = "local",
     } = $props();
 
     // Ensure structure exists
@@ -211,7 +217,12 @@
         dragOverItemIdx = null;
     }
 
-    function addEntry() {
+    function addEntry(input?: any) {
+        let initialData: any = {};
+        // If input is not an event, treat as data
+        if (input && !input.preventDefault && !input.bubbles) {
+            initialData = input;
+        }
         if (!data.character_book)
             data.character_book = { entries: mode === "global" ? {} : [] };
         // Ensure type correctness
@@ -235,6 +246,9 @@
         const newId = maxId + 1;
 
         let newEntry: any = {};
+        if (initialData.comment) {
+            // If ID present in initialData, we might overwrite? No, keep generated ID
+        }
         if (mode === "global") {
             // GLOBAL SCHEMA
             newEntry = {
@@ -335,6 +349,10 @@
             };
         }
 
+        if (Object.keys(initialData).length > 0) {
+             newEntry = { ...newEntry, ...initialData };
+        }
+
         if (Array.isArray(data.character_book.entries)) {
             data.character_book.entries = [
                 ...data.character_book.entries,
@@ -346,6 +364,18 @@
                 ...data.character_book.entries,
                 [newId]: newEntry,
             };
+        }
+
+
+
+        // Re-write back to structure (redundant but safe)
+        if (Array.isArray(data.character_book.entries)) {
+             // We pushed newEntry above but we modified it locally? 
+             // Wait, I need to push the MERGED entry.
+             // Original code:
+             // if (mode === "global") { ... newEntry = ... } else { ... newEntry = ... }
+             // if array -> entries = [...entries, newEntry]
+             // So I should merge BEFORE pushing.
         }
 
         data.character_book = { ...data.character_book }; // Trigger top level
@@ -400,6 +430,61 @@
         URL.revokeObjectURL(url);
     }
 
+    // AI Generation Logic
+    let isGenDialogOpen = $state(false);
+    let genInput = $state("");
+    let isGenerating = $state(false);
+
+    async function handleGenerateWorldInfo() {
+        if (!genInput.trim()) {
+            toast.error("请输入描述内容");
+            return;
+        }
+        
+        isGenerating = true;
+
+        try {
+            // Build Context
+            let entriesData = [];
+            if (Array.isArray(data.character_book?.entries)) {
+                entriesData = data.character_book.entries;
+            } else {
+                entriesData = Object.values(data.character_book?.entries || {});
+            }
+            
+            const enabledEntries = entriesData.filter((e: any) => e.enabled !== false && e.disable !== true);
+            const currentWorldInfo = enabledEntries.map((e: any) => {
+                return `Name: ${e.comment}\nContent: ${e.content}`;
+            }).join("\n---\n");
+            
+            const newEntriesData = await AiService.generateWorldInfo(genInput, currentWorldInfo);
+            
+            if (newEntriesData && Array.isArray(newEntriesData)) {
+                let count = 0;
+                newEntriesData.forEach(item => {
+                    addEntry({
+                        comment: item.comment || "AI生成条目",
+                        content: item.content || "",
+                        constant: true
+                    });
+                    count++;
+                });
+                
+                // Success
+                toast.success(`已生成 ${count} 个条目`);
+                isGenDialogOpen = false;
+                genInput = "";
+                
+            } else {
+                 toast.error("生成格式异常: 结果不是数组");
+            }
+        } catch (e: any) {
+            toast.error("生成失败: " + (e.message || "Unknown error"));
+        } finally {
+            isGenerating = false;
+        }
+    }
+
 </script>
 
 <div
@@ -432,6 +517,13 @@
                             <FileUp class="mr-2 h-4 w-4" />
                             导出到全局世界书...
                         </DropdownMenu.Item>
+                        {#if source === "local"}
+                            <DropdownMenu.Separator />
+                             <DropdownMenu.Item onclick={() => isGenDialogOpen = true}>
+                                <Bot class="mr-2 h-4 w-4" />
+                                AI 生成条目...
+                            </DropdownMenu.Item>
+                        {/if}
                     </DropdownMenu.Content>
                 </DropdownMenu.Root>
             {/if}
@@ -482,7 +574,12 @@
                     oninput={(e) => {
                         const val = e.currentTarget.value;
                         data.extensions.world = val;
-                        if (data.character_book) data.character_book.name = val;
+                        // 确保 character_book 结构存在
+                        if (!data.character_book) {
+                            data.character_book = { entries: [], name: val };
+                        } else {
+                            data.character_book.name = val;
+                        }
                         if (onChange) onChange();
                     }}
                 />
@@ -551,3 +648,44 @@
         bind:open={exportDialogOpen}
         entries={Array.isArray(data.character_book.entries) ? data.character_book.entries : Object.values(data.character_book.entries)}
     />
+
+    <Dialog.Root bind:open={isGenDialogOpen}>
+        <Dialog.Content class="sm:max-w-[500px]">
+            <Dialog.Header>
+                <Dialog.Title class="flex items-center gap-2">
+                    <Bot class="h-5 w-5 text-primary" />
+                    AI 世界书生成
+                </Dialog.Title>
+                <Dialog.Description>
+                    输入设定灵感，AI 将基于当前世界观自动扩展相关条目。
+                </Dialog.Description>
+                <div class="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                    条目确认使用后，请记得点保存，否则在下次生成时，之前生成的内容不会作为上下文。
+                </div>
+            </Dialog.Header>
+            
+            <div class="py-4">
+                <Label class="mb-2 block">设定描述</Label>
+                <Textarea 
+                    bind:value={genInput} 
+                    placeholder="请清晰描述你想要的世界书方向和简要内容，并且建议进行限制（免得AI放飞自我）"
+                    rows={4}
+                />
+            </div>
+
+            <Dialog.Footer>
+                <Button variant="outline" onclick={() => isGenDialogOpen = false}>取消</Button>
+                <Button onclick={handleGenerateWorldInfo} disabled={isGenerating}>
+                    {#if isGenerating}
+                        <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                        生成中，别关...
+                    {:else}
+                        <Sparkles class="mr-2 h-4 w-4" />
+                        开始生成
+                    {/if}
+                </Button>
+            </Dialog.Footer>
+        </Dialog.Content>
+    </Dialog.Root>
+
+

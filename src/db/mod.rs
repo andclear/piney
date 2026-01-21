@@ -29,7 +29,7 @@ pub async fn init_database() -> anyhow::Result<DatabaseConnection> {
     }
 
     // 数据库文件路径
-    let db_path = data_path.join("data.db");
+    let db_path = data_path.join("piney.db");
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
     info!("连接数据库: {}", db_url);

@@ -1,0 +1,42 @@
+{
+  "name": "测试",
+  "description": "",
+  "personality": "",
+  "scenario": "",
+  "first_mes": "",
+  "mes_example": "",
+  "creatorcomment": "",
+  "avatar": "none",
+  "talkativeness": "0.5",
+  "fav": false,
+  "tags": [],
+  "spec": "chara_card_v3",
+  "spec_version": "3.0",
+  "data": {
+    "name": "测试",
+    "description": "",
+    "personality": "",
+    "scenario": "",
+    "first_mes": "",
+    "mes_example": "",
+    "creator_notes": "",
+    "system_prompt": "",
+    "post_history_instructions": "",
+    "tags": [],
+    "creator": "",
+    "character_version": "",
+    "alternate_greetings": [],
+    "extensions": {
+      "talkativeness": "0.5",
+      "fav": false,
+      "world": "",
+      "depth_prompt": {
+        "prompt": "",
+        "depth": 4,
+        "role": "system"
+      }
+    },
+    "group_only_greetings": []
+  },
+  "create_date": "2026-01-21 @10h 11m 46s 798ms"
+}

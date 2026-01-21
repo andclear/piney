@@ -37,9 +37,11 @@
         StickyNote,
         Terminal,
         Trash2,
+        Bot,
     } from "lucide-svelte";
     import * as Dialog from "$lib/components/ui/dialog";
     import * as AlertDialog from "$lib/components/ui/alert-dialog";
+    import { Checkbox } from "$lib/components/ui/checkbox";
     import { cn } from "$lib/utils";
     import { breadcrumbs } from "$lib/stores/breadcrumb";
     import RichTextarea from "$lib/components/character/RichTextarea.svelte";
@@ -89,6 +91,7 @@
     let originalFormState = {
         name: "",
         description: "",
+        creator: "",
         firstMes: "",
         altGreetings: [] as string[],
         scenario: "",
@@ -100,11 +103,98 @@
     // World Info State
     let isSavingWorldInfo = false;
     let lastSaved = Date.now();
+    
+    // 额外设定项（对话示例、世界观与逻辑）- 仅 source=local 时使用
+    let showExtraSettings = false;
+
+    // AI Generation State
+    let isGenDialogOpen = false;
+    let genInput = "";
+    let genUseYaml = false;
+    let genIncludeWorldInfo = false;
+    let isGenerating = false;
+    let isDescZenMode = false;
+
+    function handleGenDialogChange(open: boolean) {
+        if (!open && isGenerating) {
+             toast.warning("AI 正在生成中，关闭窗口可能会中断任务");
+             // We return, but shadcn Dialog might close internally if we don't control it via `open` prop.
+             // With `bind:open={isGenDialogOpen}`, preventing update requires setting it back to true? 
+             // Actually `onOpenChange` is the event. If we just bind, we can't intercept easily.
+             // We will switch to `open={...} onOpenChange={...}` in markup next.
+             // Here we update state.
+             return; 
+        }
+        isGenDialogOpen = open;
+    }
+
+    async function handleGenerateCharacter() {
+        if (!genInput.trim()) {
+            toast.error("请输入描述内容");
+            return;
+        }
+
+        // isGenDialogOpen = false; // Keep open
+        
+        // isDescZenMode = true; // Remove zen mode
+        isGenerating = true;
+        let accumulatedContent = "";
+
+        // let toastId = toast.loading("AI 正在构建角色..."); // No global toast, use dialog UI
+
+        // Build World Info Context
+        let worldInfoContext = "";
+        // Try V2 path first, then V1/Root path
+        const wb = card.data?.data?.character_book || card.data?.character_book;
+        let entriesData: any[] = [];
+        if (wb?.entries) {
+            if (Array.isArray(wb.entries)) {
+                 entriesData = wb.entries;
+            } else {
+                 entriesData = Object.values(wb.entries);
+            }
+        }
+
+        // Filter enabled entries (checking both enabled/disable flags)
+        const enabledEntries = entriesData.filter((e: any) => e.enabled !== false && e.disable !== true); 
+
+        if (genIncludeWorldInfo && enabledEntries.length > 0) {
+            const formattedEntries = enabledEntries.map((e: any, index: number) => {
+                const title = e.comment || `条目 ${index + 1}`;
+                const content = e.content || "";
+                return `Name: ${title}\nContent: ${content}`;
+            }).join("\n---\n");
+            
+            worldInfoContext = `## 世界观背景资料 (World Setting)\n（若此处有内容，请务必基于以下设定构建角色的背景与能力，严禁产生设定冲突）\n${formattedEntries}`;
+        }
+
+        try {
+            const content = await AiService.generateCharacter(
+                genInput,
+                genUseYaml,
+                worldInfoContext
+            );
+            formDescription = content;
+            toast.success("角色生成完成");
+            isGenDialogOpen = false;
+        } catch (err: any) {
+             toast.error("生成失败: " + (err.message || err));
+        } finally {
+            isGenerating = false;
+        }
+    }
+
+    function openGenDialog() {
+        genInput = "";
+        genUseYaml = false;
+        isGenDialogOpen = true;
+    }
 
     function updateFormSnapshot() {
         originalFormState = {
             name: formName,
             description: formDescription,
+            creator: formCreator,
             firstMes: formFirstMes,
             altGreetings: JSON.parse(JSON.stringify(formAltGreetings)), // Deep copy
             scenario: formScenario,
@@ -403,6 +493,10 @@
                     v2Data.creator || jsonData.creator || card.author || "";
 
                 updateFormSnapshot();
+                
+                // 从 localStorage 读取额外设定项开关状态
+                const extraSettingsKey = `piney_extra_settings_${cardId}`;
+                showExtraSettings = localStorage.getItem(extraSettingsKey) === "true";
             } catch (jsonErr) {
                 console.error("Failed to parse card data JSON", jsonErr);
                 toast.error("角色卡数据解析失败，部分字段可能无法显示");
@@ -450,6 +544,7 @@
                 scenario: formScenario,
                 personality: formPersonality,
                 character_version: formVersion,
+                creator: formCreator, // 创作者（仅 source=local 时会发送）
             };
 
             const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
@@ -486,12 +581,18 @@
         try {
             const token = localStorage.getItem("auth_token");
             const wbData = card.data?.data?.character_book;
+            const extData = card.data?.data?.extensions;
 
-            // CRITICAL: Only send character_book, do NOT send extensions
-            // to avoid overwriting regex_scripts and other extension fields
-            const payload = {
+            // Send both character_book and extensions (for world name sync)
+            const payload: Record<string, unknown> = {
                 character_book: wbData,
             };
+            
+            // 仅当 extensions 存在且有 world 字段时发送 extensions
+            // 这确保世界书名称能正确保存
+            if (extData && extData.world !== undefined) {
+                payload.extensions = extData;
+            }
 
             const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
                 method: "PATCH",
@@ -1105,35 +1206,47 @@
                                     />
                                 </div>
 
-                                {#if formCreator}
+                                <!-- 创作者字段：source=local 时可编辑且始终显示；source=import 时只读且仅原始值有值时显示 -->
+                                {#if card.source === "local" || originalFormState.creator}
                                     <div
-                                        class="space-y-2 p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm group"
+                                        class="space-y-2 p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm hover:border-primary/20 transition-all duration-300 group"
                                     >
                                         <Label
                                             class="text-xs font-medium text-muted-foreground uppercase tracking-wider"
                                             >创作者</Label
                                         >
-                                        <div
-                                            class="flex items-center h-10 px-3 rounded-md bg-muted/50 text-muted-foreground border border-transparent"
-                                        >
-                                            {formCreator}
-                                        </div>
+                                        {#if card.source === "local"}
+                                            <Input
+                                                bind:value={formCreator}
+                                                placeholder="输入创作者名称..."
+                                                class="border-0 bg-secondary/20 h-10 font-medium focus-visible:ring-1 focus-visible:bg-background transition-all shadow-none"
+                                            />
+                                        {:else}
+                                            <div
+                                                class="flex items-center h-10 px-3 rounded-md bg-muted/50 text-muted-foreground border border-transparent"
+                                            >
+                                                {formCreator}
+                                            </div>
+                                        {/if}
                                     </div>
                                 {/if}
                             </div>
 
-                            {#if formDescription}
+                            <!-- 角色描述：source=local 时始终显示；source=import 时仅原始值有值时显示 -->
+                            {#if card.source === "local" || originalFormState.description}
                                 <div
                                     class="p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm hover:border-primary/20 transition-all duration-300"
                                 >
                                     <RichTextarea
                                         bind:value={formDescription}
+                                        bind:isZenMode={isDescZenMode}
                                         label="角色描述"
                                         placeholder="详细描述角色的外貌、性格..."
                                         class="border-0 bg-transparent shadow-none p-0 focus-visible:ring-0"
                                         isDirty={isDescDirty}
                                         icon={User}
                                         aiFeature={AiFeature.OPTIMIZE_DESCRIPTION}
+                                        extraActions={genButton}
                                     />
                                 </div>
                             {/if}
@@ -1176,14 +1289,15 @@
                                 </div>
                             </div>
 
-                            {#if formMesExample}
+                            <!-- 对话示例：有原始值时始终显示；否则仅在勾选开关时显示 (仅 source=local 有此逻辑) -->
+                            {#if (card.source === "import" && originalFormState.mesExample) || (card.source === "local" && (originalFormState.mesExample || showExtraSettings))}
                                 <div
                                     class="p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm hover:border-primary/20 transition-all duration-300"
                                 >
                                     <RichTextarea
                                         bind:value={formMesExample}
                                         label="对话示例"
-                                        placeholder="<START>..."
+                                        placeholder="对话示例..."
                                         rows={5}
                                         class="border-0 bg-transparent shadow-none p-0 focus-visible:ring-0 font-mono text-sm leading-relaxed"
                                         isDirty={isMesExampleDirty}
@@ -1194,8 +1308,8 @@
                             {/if}
                         </div>
 
-                        <!-- World & Logic Section -->
-                        {#if formScenario || formPersonality}
+                        <!-- World & Logic Section：有原始值时始终显示；否则仅在勾选开关时显示 (仅 source=local 有此逻辑) -->
+                        {#if (card.source === "import" && (originalFormState.scenario || originalFormState.personality)) || (card.source === "local" && (originalFormState.scenario || originalFormState.personality || showExtraSettings))}
                             <div class="space-y-4">
                                 <div class="flex items-center gap-2 mb-2">
                                     <div
@@ -1211,7 +1325,8 @@
                                 </div>
 
                                 <div class="grid gap-4">
-                                    {#if formPersonality}
+                                    <!-- Personality：有原始值时始终显示；否则需勾选开关 (source=local) / 不显示 (source=import) -->
+                                    {#if (card.source === "import" && originalFormState.personality) || (card.source === "local" && (originalFormState.personality || showExtraSettings))}
                                         <div
                                             class="p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm hover:border-primary/20 transition-all duration-300"
                                         >
@@ -1227,7 +1342,8 @@
                                         </div>
                                     {/if}
 
-                                    {#if formScenario}
+                                    <!-- Scenario：有原始值时始终显示；否则需勾选开关 (source=local) / 不显示 (source=import) -->
+                                    {#if (card.source === "import" && originalFormState.scenario) || (card.source === "local" && (originalFormState.scenario || showExtraSettings))}
                                         <div
                                             class="p-3 md:p-4 rounded-xl border border-border/40 bg-card/50 shadow-sm hover:border-primary/20 transition-all duration-300"
                                         >
@@ -1244,6 +1360,25 @@
                                     {/if}
                                 </div>
                             </div>
+                        {/if}
+
+                        <!-- 额外设定项开关（仅 source=local 且不是所有额外设定项都有值时显示，始终在最底部） -->
+                        {#if card.source === "local" && !(originalFormState.mesExample && originalFormState.personality && originalFormState.scenario)}
+                            <label class="flex items-center gap-2 mt-4 cursor-pointer select-none">
+                                <input 
+                                    type="checkbox" 
+                                    bind:checked={showExtraSettings}
+                                    onchange={() => {
+                                        // 保存到 localStorage
+                                        const key = `piney_extra_settings_${cardId}`;
+                                        localStorage.setItem(key, showExtraSettings.toString());
+                                    }}
+                                    class="h-3.5 w-3.5 rounded border-muted-foreground/30 text-muted-foreground focus:ring-0 focus:ring-offset-0"
+                                />
+                                <span class="text-xs text-muted-foreground/60">
+                                    点击启用更多设定项（非必要）
+                                </span>
+                            </label>
                         {/if}
                     </div>
                 </div>
@@ -1279,6 +1414,7 @@
                         <WorldInfoTab
                             bind:data={card.data.data}
                             {lastSaved}
+                            source={card.source}
                             onChange={() => (card = card)}
                         />
                     {:else}
@@ -1334,7 +1470,9 @@
                      <VersionHistoryTab
                          {cardId}
                          currentVersion={card.version}
+                         source={card.source}
                          onRestore={loadCard}
+                         onClaim={loadCard}
                      />
                 </div>
             </div>
@@ -1384,6 +1522,89 @@
         </Dialog.Footer>
     </Dialog.Content>
 </Dialog.Root>
+
+<!-- AI Generation Dialog -->
+<Dialog.Root open={isGenDialogOpen} onOpenChange={handleGenDialogChange}>
+    <Dialog.Content class="sm:max-w-[500px]">
+        <Dialog.Header>
+            <Dialog.Title class="flex items-center gap-2">
+                <Bot class="h-5 w-5 text-primary" />
+                AI 角色生成
+            </Dialog.Title>
+            <Dialog.Description>
+                通过简短描述快速构建角色档案。
+            </Dialog.Description>
+        </Dialog.Header>
+        
+        <div class="space-y-4 py-4">
+            <div class="space-y-2">
+                <Label>描述你的角色想法</Label>
+                <Textarea 
+                    bind:value={genInput} 
+                    placeholder="描述的越详细，AI生成的越完整..."
+                    rows={4}
+                />
+            </div>
+            
+            <div class="flex items-start gap-2">
+                <Checkbox id="use-yaml" bind:checked={genUseYaml} class="mt-0.5 border-muted-foreground/50" />
+                <div class="grid gap-1.5 leading-none">
+                    <Label
+                        for="use-yaml"
+                        class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                        使用 YAML 格式创建
+                    </Label>
+                    <p class="text-sm text-muted-foreground">
+                        勾选后将严格按照 YAML 结构生成详细档案。
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-start gap-2">
+                <Checkbox id="include-wi" bind:checked={genIncludeWorldInfo} class="mt-0.5 border-muted-foreground/50" />
+                <div class="grid gap-1.5 leading-none">
+                    <Label
+                        for="include-wi"
+                        class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                        附加世界书
+                    </Label>
+                    <p class="text-sm text-muted-foreground">
+                        勾选此项将会在提示词中附加世界书内容，可能消耗大量token。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <Dialog.Footer>
+            <Button variant="outline" onclick={() => isGenDialogOpen = false}>取消</Button>
+            <Button onclick={handleGenerateCharacter} disabled={isGenerating}>
+                {#if isGenerating}
+                    <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+                    生成中，别关...
+                {:else}
+                    <Sparkles class="mr-2 h-4 w-4" />
+                    开始生成
+                {/if}
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
+
+{#snippet genButton()}
+    {#if card.source === "local"}
+        {#if isGenerating}
+             <Button variant="ghost" size="sm" class="h-5 text-[10px] px-2 text-primary" disabled>
+                 <Loader2 class="mr-1 h-3 w-3 animate-spin" /> AI生成中...
+             </Button>
+        {:else}
+             <Button variant="ghost" size="sm" class="h-5 text-[10px] px-2 text-muted-foreground hover:text-primary" onclick={openGenDialog}>
+                 <Bot class="mr-1 h-3 w-3" /> AI生成
+             </Button>
+        {/if}
+    {/if}
+{/snippet}
 
 <AlertDialog.Root bind:open={showDeleteDialog}>
     <AlertDialog.Content>

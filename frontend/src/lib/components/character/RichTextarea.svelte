@@ -18,7 +18,7 @@
     import * as Dialog from "$lib/components/ui/dialog";
     import * as Collapsible from "$lib/components/ui/collapsible";
     import { cn } from "$lib/utils";
-    import { tick } from "svelte";
+    import { tick, type Snippet } from "svelte";
     import CodeEditor from "./CodeEditor.svelte";
     import HTMLRender from "$lib/components/render/HTMLRender.svelte";
     import { renderContent } from "$lib/utils/textRenderer";
@@ -40,7 +40,8 @@
         previewProcessor = undefined as ((input: string) => string) | undefined,
         regexDebugInfo = undefined as { regex: string, flags: string, replace: string } | undefined,
         regexScripts = [] as any[],
-        aiFeature = undefined as AiFeature | undefined
+        aiFeature = undefined as AiFeature | undefined,
+        extraActions = undefined as Snippet | undefined
     } = $props();
 
 
@@ -106,6 +107,9 @@
                 <Label>{label}</Label>
             </div>
             <div class="flex items-center gap-2">
+                {#if extraActions}
+                    {@render extraActions()}
+                {/if}
                 <Button
                     variant="ghost"
                     size="sm"

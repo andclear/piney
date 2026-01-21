@@ -6,16 +6,18 @@ use axum::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::TimeZone;
+use futures::StreamExt;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use tokio::fs;
 use tracing::warn;
 use uuid::Uuid;
+use zip::write::FileOptions;
 
 use crate::entities::character_card;
 use crate::utils::hash::compute_json_hash;
@@ -176,7 +178,7 @@ async fn process_png_card(
 
     // 4. 保存到数据库
     let avatar_path = format!("/cards/{}/v1_thumbnail.webp", uuid);
-    save_card_model(db, uuid, json_val, Some(avatar_path), data_hash).await
+    save_card_model(db, uuid, json_val, Some(avatar_path), data_hash, "import").await
 }
 
 async fn process_json_card(
@@ -221,7 +223,15 @@ async fn process_json_card(
     }
 
     // 3. 保存数据库
-    save_card_model(db, uuid, v, Some("/default.webp".to_string()), data_hash).await
+    save_card_model(
+        db,
+        uuid,
+        v,
+        Some("/default.webp".to_string()),
+        data_hash,
+        "import",
+    )
+    .await
 }
 
 // 提取的 PNG 元数据解析逻辑
@@ -274,6 +284,7 @@ async fn save_card_model(
     json: Value,
     avatar: Option<String>,
     data_hash: String,
+    source: &str, // "import" 或 "local"
 ) -> Result<(), String> {
     // 规范化 V2/V3 结构 (仅用于提取字段)
     let card_data = if let Some(d) = json.get("data") {
@@ -366,6 +377,7 @@ async fn save_card_model(
         token_count_spec: Set(Some(counts.spec)),
         token_count_wb: Set(Some(counts.wb)),
         token_count_other: Set(Some(counts.other)),
+        source: Set(source.to_string()),
     };
 
     active_model
@@ -374,12 +386,16 @@ async fn save_card_model(
         .map_err(|e| format!("数据库错误: {}", e))?;
 
     // --- Auto-create Initial Version (V1) ---
-    // Since this is a fresh import, we create the baseline version immediately.
+    let version_note = if source == "local" {
+        "本地新建"
+    } else {
+        "初始导入"
+    };
     let version = crate::entities::character_versions::ActiveModel {
         id: Set(Uuid::new_v4()),
         character_id: Set(uuid),
         version_number: Set("V1".to_string()),
-        note: Set(Some("初始导入".to_string())),
+        note: Set(Some(version_note.to_string())),
         data: Set(pretty_json_str), // Use the formatted JSON
         created_at: Set(chrono::Utc::now().naive_utc()),
     };
@@ -555,7 +571,11 @@ pub async fn debug_import(
                                 let data_hash =
                                     crate::utils::hash::compute_json_hash(&compact_json);
 
-                                match save_card_model(&db, uuid, json_val, None, data_hash).await {
+                                match save_card_model(
+                                    &db, uuid, json_val, None, data_hash, "import",
+                                )
+                                .await
+                                {
                                     Ok(_) => {
                                         logs.push("保存成功。".to_string());
                                         logs.push(format!("UUID: {}", uuid));
@@ -627,6 +647,116 @@ pub async fn debug_import(
         saved_json,
         error,
     })
+}
+
+// ============ 新建角色卡 API ============
+
+#[derive(Serialize)]
+pub struct CreateCardResponse {
+    pub id: Uuid,
+}
+
+#[derive(Deserialize)]
+pub struct CreateCardRequest {
+    pub name: String,
+}
+
+/// POST /api/cards/create - 新建空白角色卡
+pub async fn create_card(
+    State(db): State<DatabaseConnection>,
+    Json(payload): Json<CreateCardRequest>,
+) -> Result<Json<CreateCardResponse>, (StatusCode, String)> {
+    let storage_dir = crate::utils::paths::get_data_path("cards");
+    if !storage_dir.exists() {
+        tokio::fs::create_dir_all(&storage_dir)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    // 生成 UUID
+    let uuid = Uuid::new_v4();
+
+    // 生成创建时间字符串
+    let now = chrono::Local::now();
+    let create_date = now.format("%Y-%m-%d @%Hh %Mm %Ss %3fms").to_string();
+
+    // 构建空白角色卡 JSON 模板（参考 docs/cankao/新建角色卡.json）
+    let card_json = serde_json::json!({
+        "name": payload.name,
+        "description": "",
+        "personality": "",
+        "scenario": "",
+        "first_mes": "",
+        "mes_example": "",
+        "creatorcomment": "",
+        "avatar": "none",
+        "talkativeness": "0.5",
+        "fav": false,
+        "tags": [],
+        "spec": "chara_card_v3",
+        "spec_version": "3.0",
+        "data": {
+            "name": payload.name,
+            "description": "",
+            "personality": "",
+            "scenario": "",
+            "first_mes": "",
+            "mes_example": "",
+            "creator_notes": "",
+            "system_prompt": "",
+            "post_history_instructions": "",
+            "tags": [],
+            "creator": "",
+            "character_version": "",
+            "alternate_greetings": [],
+            "extensions": {
+                "talkativeness": "0.5",
+                "fav": false,
+                "world": "",
+                "depth_prompt": {
+                    "prompt": "",
+                    "depth": 4,
+                    "role": "system"
+                }
+            },
+            "group_only_greetings": []
+        },
+        "create_date": create_date
+    });
+
+    // 创建角色卡目录（用于后续可能的封面上传等）
+    let card_dir = storage_dir.join(uuid.to_string());
+    if !card_dir.exists() {
+        tokio::fs::create_dir_all(&card_dir).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("创建目录失败: {}", e),
+            )
+        })?;
+    }
+
+    // 计算 hash
+    let compact_json = serde_json::to_string(&card_json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("序列化 JSON 失败: {}", e),
+        )
+    })?;
+    let data_hash = crate::utils::hash::compute_json_hash(&compact_json);
+
+    // 保存到数据库 (使用默认封面, source = "local")
+    save_card_model(
+        &db,
+        uuid,
+        card_json,
+        Some("/default.webp".to_string()),
+        data_hash,
+        "local",
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(CreateCardResponse { id: uuid }))
 }
 
 // ============ 列表和更新 API ============
@@ -711,10 +841,17 @@ pub async fn list(
         select = select.filter(character_card::Column::CategoryId.eq(cat_id));
     }
 
-    // 按名称搜索
+    // 按名称、描述、作者、标签、概览搜索
     if let Some(search) = &query.search {
         if !search.is_empty() {
-            select = select.filter(character_card::Column::Name.contains(search));
+            select = select.filter(
+                sea_orm::Condition::any()
+                    .add(character_card::Column::Name.contains(search))
+                    .add(character_card::Column::Description.contains(search))
+                    .add(character_card::Column::Author.contains(search))
+                    .add(character_card::Column::Tags.contains(search))
+                    .add(character_card::Column::CustomSummary.contains(search)),
+            );
         }
     }
 
@@ -828,6 +965,7 @@ pub struct UpdateCardRequest {
     pub mes_example: Option<String>,
     pub scenario: Option<String>,
     pub personality: Option<String>,
+    pub creator: Option<String>, // 创作者（仅 source=local 时可编辑）
     pub creator_notes: Option<String>,
     pub system_prompt: Option<String>,
     pub character_version: Option<String>,
@@ -837,6 +975,8 @@ pub struct UpdateCardRequest {
     pub extensions: Option<Value>,
     // Partial extension update: only update regex_scripts
     pub regex_scripts: Option<Value>,
+    // 认领作品: 将 source 从 import 改为 local
+    pub source: Option<String>,
 }
 
 /// PATCH /api/cards/:id - 更新角色卡
@@ -870,6 +1010,10 @@ pub async fn update(
     }
     if let Some(summary) = payload.custom_summary {
         active.custom_summary = Set(Some(summary));
+    }
+    // 认领作品：更新 source 字段
+    if let Some(source) = payload.source {
+        active.source = Set(source);
     }
 
     // Helper closure to update JSON field at specific path
@@ -961,6 +1105,13 @@ pub async fn update(
     if let Some(val) = payload.creator_notes {
         update_json("creatorcomment", Value::String(val.clone()));
         update_json("data.creator_notes", Value::String(val));
+        spec_modified = true;
+    }
+
+    // 8.5. Creator: JSON data.data (creator) + DB author field
+    if let Some(val) = payload.creator {
+        update_json("data.creator", Value::String(val.clone()));
+        active.author = Set(Some(val));
         spec_modified = true;
     }
 
@@ -1144,67 +1295,35 @@ pub async fn update_cover(
 }
 
 /// GET /api/cards/:id/export - Export card
-pub async fn export_card(
-    State(db): State<DatabaseConnection>,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let card = character_card::Entity::find_by_id(id)
-        .one(&db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "Card not found".to_string()))?;
-
-    let storage_dir = crate::utils::paths::get_data_path(&format!("cards/{}", id));
+async fn _get_card_file_data(
+    db: &DatabaseConnection,
+    card: character_card::Model,
+) -> Result<(String, Vec<u8>), String> {
+    let storage_dir = crate::utils::paths::get_data_path(&format!("cards/{}", card.id));
     let png_path = storage_dir.join("v1_source.png");
 
-    // Determine filename
-    let filename = format!(
-        "{}.png",
-        card.name
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
-            .collect::<String>()
-    );
-
-    // Headers
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}.png\"", filename)
-            .parse()
-            .unwrap(), // Safe ascii fallback needed?
-    );
-    headers.insert(header::CONTENT_TYPE, "image/png".parse().unwrap());
-
-    // Logic:
-    // If metadata_modified == true AND PNG exists -> Inject new JSON.
-    // Else -> Stream original PNG (or generate from DB if no PNG? Assuming PNG exists from import).
+    let safe_name = card
+        .name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
+        .collect::<String>();
 
     if card.metadata_modified && png_path.exists() {
         // Inject JSON
-        let file_data = fs::read(&png_path).await.map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Read PNG failed: {}", e),
-            )
-        })?;
+        let file_data = fs::read(&png_path)
+            .await
+            .map_err(|e| format!("Read PNG failed: {}", e))?;
 
         let decoder = png::Decoder::new(Cursor::new(&file_data));
-        let mut reader = decoder.read_info().map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("PNG Decode Error: {}", e),
-            )
-        })?;
+        let mut reader = decoder
+            .read_info()
+            .map_err(|e| format!("PNG Decode Error: {}", e))?;
 
         // Allocate buffer for image data
         let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("PNG Frame Error: {}", e),
-            )
-        })?;
+        let info = reader
+            .next_frame(&mut buf)
+            .map_err(|e| format!("PNG Frame Error: {}", e))?;
         let bytes = &buf[..info.buffer_size()];
 
         // Encode new PNG with updated metadata
@@ -1218,73 +1337,149 @@ pub async fn export_card(
             let json_base64 = general_purpose::STANDARD.encode(card.data.as_bytes());
             encoder
                 .add_text_chunk("ccv3".to_string(), json_base64)
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("PNG Text Error: {}", e),
-                    )
-                })?;
+                .map_err(|e| format!("PNG Text Error: {}", e))?;
 
-            let mut writer = encoder.write_header().map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("PNG Header Error: {}", e),
-                )
-            })?;
-            writer.write_image_data(bytes).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("PNG Write Error: {}", e),
-                )
-            })?;
+            let mut writer = encoder
+                .write_header()
+                .map_err(|e| format!("PNG Header Error: {}", e))?;
+            writer
+                .write_image_data(bytes)
+                .map_err(|e| format!("PNG Write Error: {}", e))?;
         }
 
-        // --- NEW LOGIC: Overwrite source file and reset metadata_modified ---
+        // Write back to source
         if let Err(e) = fs::write(&png_path, &output_data).await {
             tracing::error!("Failed to overwrite updated PNG to source file: {}", e);
-            // We continue even if write fails, returning the generated data to user is priority
         } else {
-            // Update DB to reset flag
+            // Update DB
             let mut active: character_card::ActiveModel = card.into();
             active.metadata_modified = Set(false);
-            if let Err(e) = active.update(&db).await {
+            if let Err(e) = active.update(db).await {
                 tracing::error!("Failed to reset metadata_modified flag: {}", e);
             }
         }
 
-        return Ok((headers, Body::from(output_data)));
+        Ok((format!("{}.png", safe_name), output_data))
     } else if png_path.exists() {
-        // Stream original (already contains up-to-date metadata)
-        let file = tokio::fs::File::open(png_path)
+        // Read directly
+        let file_data = fs::read(&png_path)
             .await
-            .map_err(|e| (StatusCode::NOT_FOUND, format!("File open failed: {}", e)))?;
-        let stream = tokio_util::io::ReaderStream::new(file);
-        let body = Body::from_stream(stream);
-
-        return Ok((headers, body));
+            .map_err(|e| format!("Read PNG failed: {}", e))?;
+        Ok((format!("{}.png", safe_name), file_data))
+    } else {
+        // JSON Fallback
+        Ok((format!("{}.json", safe_name), card.data.into_bytes()))
     }
+}
 
-    // Fallback: Export as JSON if no PNG source/thumbnail available
-    let safe_name = card
-        .name
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
-        .collect::<String>();
+pub async fn export_card(
+    State(db): State<DatabaseConnection>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let card = character_card::Entity::find_by_id(id)
+        .one(&db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Card not found".to_string()))?;
 
-    let json_filename = format!("{}.json", safe_name);
+    let (filename, data) = _get_card_file_data(&db, card)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
     headers.insert(
         header::CONTENT_DISPOSITION,
-        format!("attachment; filename=\"{}\"", json_filename)
+        format!("attachment; filename=\"{}\"", filename)
             .parse()
             .unwrap(),
     );
+    if filename.ends_with(".json") {
+        headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
+    } else {
+        headers.insert(header::CONTENT_TYPE, "image/png".parse().unwrap());
+    }
 
-    // Use current DB data
-    let body = Body::from(card.data);
+    Ok((headers, Body::from(data)))
+}
 
-    Ok((headers, body))
+#[derive(Deserialize)]
+pub struct BatchExportRequest {
+    pub ids: Vec<Uuid>,
+}
+
+pub async fn batch_export_cards(
+    State(db): State<DatabaseConnection>,
+    Json(payload): Json<BatchExportRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if payload.ids.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "No cards selected".to_string()));
+    }
+
+    // Find all cards
+    let cards = character_card::Entity::find()
+        .filter(character_card::Column::Id.is_in(payload.ids))
+        .all(&db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Process concurrently
+    let results: Vec<Result<(String, Vec<u8>), String>> = futures::stream::iter(cards)
+        .map(|card| {
+            let db = db.clone();
+            async move { _get_card_file_data(&db, card).await }
+        })
+        .buffer_unordered(10)
+        .collect()
+        .await;
+
+    // Create Zip
+    let mut zip_writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = FileOptions::<()>::default().compression_method(zip::CompressionMethod::Deflated);
+
+    let mut names = std::collections::HashSet::new();
+
+    for res in results {
+        if let Ok((mut filename, data)) = res {
+            // Deduplicate logic
+            let mut i = 1;
+            // Handle filenames without logic stems carefully ifneeded, but safe_name ensures alphanumeric.
+            // Split extension
+            let (stem, ext) = if let Some(idx) = filename.rfind('.') {
+                (&filename[..idx], &filename[idx + 1..])
+            } else {
+                (filename.as_str(), "")
+            };
+
+            let stem = stem.to_string();
+            let ext = ext.to_string();
+
+            while names.contains(&filename) {
+                filename = format!("{}_{}.{}", stem, i, ext);
+                i += 1;
+            }
+            names.insert(filename.clone());
+
+            let _ = zip_writer.start_file(filename, options);
+            let _ = zip_writer.write_all(&data);
+        }
+    }
+
+    let cursor = zip_writer.finish().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Zip error: {}", e),
+        )
+    })?;
+    let zip_buffer = cursor.into_inner();
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        "attachment; filename=\"batch_export.zip\"".parse().unwrap(),
+    );
+    headers.insert(header::CONTENT_TYPE, "application/zip".parse().unwrap());
+
+    Ok((headers, Body::from(zip_buffer)))
 }
 
 #[derive(Deserialize)]

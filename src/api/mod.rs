@@ -28,6 +28,7 @@ pub fn routes(db: DatabaseConnection) -> Router {
         .route("/cards", get(cards::list))
         .route("/cards/import", post(cards::import))
         .route("/cards/debug_import", post(cards::debug_import))
+        .route("/cards/create", post(cards::create_card))
         .route(
             "/cards/{id}",
             get(cards::get_details)
@@ -38,6 +39,7 @@ pub fn routes(db: DatabaseConnection) -> Router {
         .route("/cards/{id}/export", get(cards::export_card))
         .route("/cards/batch/category", put(cards::batch_update_category))
         .route("/cards/batch/delete", post(cards::batch_soft_delete))
+        .route("/cards/batch/export", post(cards::batch_export_cards))
         // 角色卡版本管理
         .route(
             "/cards/{id}/versions",

@@ -27,10 +27,12 @@
     interface Props {
         cardId: string;
         onRestore?: () => void;
+        onClaim?: () => void; // 认领后回调
         currentVersion?: string | null;
+        source?: string; // "import" | "local"
     }
 
-    let { cardId, onRestore, currentVersion = null }: Props = $props();
+    let { cardId, onRestore, onClaim, currentVersion = null, source = "import" }: Props = $props();
 
     interface Version {
         id: string;
@@ -57,6 +59,10 @@
     let isDeleteDialogOpen = $state(false);
     let versionToDelete = $state<Version | null>(null);
     let isDeleting = $state(false);
+
+    // Claim Ownership Dialog
+    let isClaimDialogOpen = $state(false);
+    let isClaiming = $state(false);
 
     onMount(() => {
         loadVersions();
@@ -187,6 +193,33 @@
             toast.error("删除失败", { description: String(e) });
         } finally {
             isDeleting = false;
+        }
+    }
+
+    // 认领作品 - 将 source 从 import 改为 local
+    async function confirmClaim() {
+        try {
+            isClaiming = true;
+            const token = localStorage.getItem("auth_token");
+            const res = await fetch(`${API_BASE}/api/cards/${cardId}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ source: "local" }),
+            });
+
+            if (!res.ok) throw new Error("认领失败");
+
+            toast.success("已成功认领此作品");
+            isClaimDialogOpen = false;
+            if (onClaim) onClaim();
+        } catch (e) {
+            console.error(e);
+            toast.error("认领失败", { description: String(e) });
+        } finally {
+            isClaiming = false;
         }
     }
 
@@ -328,6 +361,18 @@
             </div>
         </ScrollArea>
     {/if}
+
+    <!-- 认领作品链接 (仅导入的卡片显示) -->
+    {#if source === "import"}
+        <div class="pt-6 mt-4 border-t border-dashed text-center">
+            <button
+                class="text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors cursor-pointer underline-offset-2 hover:underline"
+                onclick={() => isClaimDialogOpen = true}
+            >
+                这是您自己创建的角色卡？点击这里认领作品，然后即可以在设定标签页中编辑署名
+            </button>
+        </div>
+    {/if}
 </div>
 
 <!-- Create Version Dialog -->
@@ -437,6 +482,37 @@
                     删除中...
                 {:else}
                     确认删除
+                {/if}
+            </AlertDialog.Action>
+        </AlertDialog.Footer>
+    </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Claim Ownership Alert Dialog -->
+<AlertDialog.Root bind:open={isClaimDialogOpen}>
+    <AlertDialog.Content>
+        <AlertDialog.Header>
+            <AlertDialog.Title>认领作品</AlertDialog.Title>
+            <AlertDialog.Description class="space-y-3">
+                <p>
+                    此操作专用于作者找回自己作品的署名编辑权限。
+                </p>
+                <p class="text-destructive font-medium">
+                    修改他人作品的署名是不礼貌的行为。
+                </p>
+            </AlertDialog.Description>
+        </AlertDialog.Header>
+        <AlertDialog.Footer>
+            <AlertDialog.Cancel>取消</AlertDialog.Cancel>
+            <AlertDialog.Action 
+                onclick={confirmClaim}
+                disabled={isClaiming}
+            >
+                {#if isClaiming}
+                    <Loader2 class="h-4 w-4 animate-spin mr-2" />
+                    认领中...
+                {:else}
+                    我确认为原作者，认领作品
                 {/if}
             </AlertDialog.Action>
         </AlertDialog.Footer>

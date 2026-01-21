@@ -4,7 +4,7 @@
     import { Input } from "$lib/components/ui/input";
     import { Button } from "$lib/components/ui/button";
     import * as Card from "$lib/components/ui/card";
-    import { Search, Plus, Upload, Book } from "lucide-svelte";
+    import { Plus, Upload, Book, ChevronLeft, ChevronRight } from "lucide-svelte";
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { cn } from "$lib/utils";
@@ -16,14 +16,11 @@
 
     let items: any[] = $state([]);
     let loading = $state(true);
-    let searchTerm = $state("");
-
-    // Derived filtered items
-    let filteredItems = $derived(
-        items.filter((item) =>
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()),
-        ),
-    );
+    let currentPage = $state(1);
+    let pageSize = $state(20);
+    let totalItems = $state(0);
+    let totalPages = $state(0);
+    let jumpToPage = $state(1);
 
     onMount(async () => {
         breadcrumbs.set([{ label: "世界书", href: "/worldinfo" }]);
@@ -34,11 +31,29 @@
         loading = true;
         try {
             const token = localStorage.getItem("auth_token");
-            const res = await fetch(`${API_BASE}/api/world_info`, {
+            const params = new URLSearchParams({
+                page: currentPage.toString(),
+                page_size: pageSize.toString(),
+            });
+
+            const res = await fetch(`${API_BASE}/api/world_info?${params}`, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (!res.ok) throw new Error("加载世界书失败");
-            items = await res.json();
+            const data = await res.json();
+
+             if (data.items) {
+                 items = data.items;
+                 totalItems = data.total;
+                 currentPage = data.page;
+                 pageSize = data.page_size;
+                 totalPages = data.total_pages;
+                 jumpToPage = currentPage;
+            } else {
+                 items = data; 
+                 totalItems = items.length;
+                 totalPages = 1;
+            }
 
             // Parse data JSON for stats if needed
             items = items.map((item) => {
@@ -122,19 +137,7 @@
         </div>
     </div>
 
-    <!-- Toolbar -->
-    <div class="flex items-center gap-4">
-        <div class="relative flex-1 max-w-sm">
-            <Search
-                class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground"
-            />
-            <Input
-                placeholder="搜索世界书..."
-                class="pl-9"
-                bind:value={searchTerm}
-            />
-        </div>
-    </div>
+
 
     <!-- Grid -->
     {#if loading}
@@ -145,11 +148,11 @@
                 <div class="h-32 rounded-xl bg-muted/50 animate-pulse"></div>
             {/each}
         </div>
-    {:else if filteredItems.length > 0}
+    {:else if items.length > 0}
         <div
             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
         >
-            {#each filteredItems as item (item.id)}
+            {#each items as item (item.id)}
                 <ContextMenu.Root>
                     <ContextMenu.Trigger>
                         <div
@@ -256,6 +259,78 @@
             <p class="text-muted-foreground mt-1">
                 点击上方"导入世界书"添加您的第一个设定集
             </p>
+        </div>
+    {/if}
+
+    <!-- Pagination Controls -->
+    {#if totalPages > 1}
+        <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t pt-6">
+            <div class="text-sm text-muted-foreground">
+                显示 第 <span class="font-medium">{(currentPage - 1) * pageSize + 1}</span> 到 <span class="font-medium">{Math.min(currentPage * pageSize, totalItems)}</span> 条，共 <span class="font-medium">{totalItems}</span> 条
+            </div>
+            
+            <div class="flex items-center gap-2">
+                 <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onclick={() => {
+                        currentPage--;
+                        loadItems();
+                    }}
+                >
+                    <ChevronLeft class="h-4 w-4 mr-1" /> 上一页
+                </Button>
+                
+                <div class="flex items-center gap-2 mx-2">
+                    <span class="text-sm">第</span>
+                    <Input
+                        type="number"
+                        min="1"
+                        max={totalPages}
+                        bind:value={jumpToPage}
+                        class="h-8 w-16 text-center"
+                        onkeydown={(e) => {
+                            if (e.key === 'Enter') {
+                                let p = parseInt(String(jumpToPage));
+                                if (isNaN(p) || p < 1) p = 1;
+                                if (p > totalPages) p = totalPages;
+                                currentPage = p;
+                                jumpToPage = p;
+                                loadItems();
+                            }
+                        }}
+                    />
+                    <span class="text-sm">页 / 共 {totalPages} 页</span>
+                     <Button
+                        variant="ghost"
+                        size="sm"
+                        class="h-8 px-2 text-xs"
+                        onclick={() => {
+                             let p = parseInt(String(jumpToPage));
+                                if (isNaN(p) || p < 1) p = 1;
+                                if (p > totalPages) p = totalPages;
+                                currentPage = p;
+                                jumpToPage = p;
+                                loadItems();
+                        }}
+                    >
+                        跳转
+                    </Button>
+                </div>
+
+                <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onclick={() => {
+                        currentPage++;
+                        loadItems();
+                    }}
+                >
+                    下一页 <ChevronRight class="h-4 w-4 ml-1" />
+                </Button>
+            </div>
         </div>
     {/if}
 
