@@ -5,6 +5,7 @@
 pub mod ai;
 pub mod cards;
 pub mod categories;
+pub mod dashboard;
 pub mod history;
 pub mod settings;
 pub mod upload;
@@ -22,6 +23,8 @@ pub fn routes(db: DatabaseConnection) -> Router {
     Router::new()
         // 设置
         .route("/settings", patch(settings::update))
+        // 仪表盘
+        .route("/dashboard", get(dashboard::get_dashboard_stats))
         // 上传
         .route("/upload", post(upload::upload_image))
         // 角色卡
