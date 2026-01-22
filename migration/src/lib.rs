@@ -18,6 +18,7 @@ mod m20260113_000002_add_data_hash;
 mod m20260114_000001_add_token_counts;
 mod m20260120_000001_create_doctor_tasks;
 mod m20260121_000001_add_source_field;
+mod m20260122_000001_add_dashboard_indices;
 
 pub struct Migrator;
 
@@ -41,6 +42,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260114_000001_add_token_counts::Migration),
             Box::new(m20260120_000001_create_doctor_tasks::Migration),
             Box::new(m20260121_000001_add_source_field::Migration),
+            Box::new(m20260122_000001_add_dashboard_indices::Migration),
         ]
     }
 }

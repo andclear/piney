@@ -25,6 +25,9 @@ pub fn routes(db: DatabaseConnection) -> Router {
         .route("/settings", patch(settings::update))
         // 仪表盘
         .route("/dashboard", get(dashboard::get_dashboard_stats))
+        .route("/gacha/draw", post(dashboard::start_gacha))
+        .route("/gacha/reveal", post(dashboard::reveal_gacha))
+        .route("/gacha/confirm", post(dashboard::confirm_gacha))
         // 上传
         .route("/upload", post(upload::upload_image))
         // 角色卡

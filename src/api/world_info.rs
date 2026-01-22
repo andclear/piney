@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::api::dashboard::invalidate_cache;
 use crate::entities::world_info;
 
 #[derive(Deserialize)]
@@ -113,6 +114,10 @@ pub async fn import(
         }
     }
 
+    // Invalidate cache if any success
+    if results.iter().any(|r| r.status == "success") {
+        invalidate_cache();
+    }
     Ok(Json(results))
 }
 
@@ -222,6 +227,7 @@ pub async fn update(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(Json(updated))
 }
 
@@ -235,5 +241,6 @@ pub async fn delete(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::NO_CONTENT)
 }

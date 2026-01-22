@@ -19,6 +19,7 @@ use tracing::warn;
 use uuid::Uuid;
 use zip::write::FileOptions;
 
+use crate::api::dashboard::invalidate_cache;
 use crate::entities::character_card;
 use crate::utils::hash::compute_json_hash;
 use crate::utils::token::calculate_card_tokens;
@@ -119,6 +120,10 @@ async fn process_import(
         }
     }
 
+    // Invalidate cache if any success
+    if results.iter().any(|r| r.status == "success") {
+        invalidate_cache();
+    }
     Ok(Json(results))
 }
 async fn process_png_card(
@@ -756,6 +761,7 @@ pub async fn create_card(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    invalidate_cache();
     Ok(Json(CreateCardResponse { id: uuid }))
 }
 
@@ -1194,6 +1200,7 @@ pub async fn update(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(Json(updated_model))
 }
 
@@ -1507,6 +1514,7 @@ pub async fn batch_update_category(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::OK)
 }
 
@@ -1533,6 +1541,7 @@ pub async fn batch_soft_delete(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::OK)
 }
 
@@ -1552,6 +1561,7 @@ pub async fn soft_delete(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::OK)
 }
 
@@ -1611,6 +1621,7 @@ pub async fn restore_card(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::OK)
 }
 
@@ -1634,5 +1645,6 @@ pub async fn permanent_delete(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    invalidate_cache();
     Ok(StatusCode::OK)
 }

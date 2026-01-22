@@ -29,6 +29,8 @@
         recent_cards: SimpleCard[];
         lucky_card: LuckyCardInfo | null;
         username: string;
+        gacha_remaining: number;
+        gacha_confirmed: boolean;
     }
 
     let stats: DashboardStats | null = $state(null);
@@ -37,19 +39,35 @@
 
     onMount(async () => {
         breadcrumbs.set([]);
+        
+        // 1. Try Cache
+        const cached = localStorage.getItem("dashboard_cache");
+        if (cached) {
+            try {
+                stats = JSON.parse(cached);
+                loading = false; // Show cached content immediately
+            } catch (e) {
+                console.error("Cache parse error", e);
+            }
+        }
+
         try {
             const token = localStorage.getItem("auth_token");
             const res = await fetch(`${API_BASE}/api/dashboard`, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (res.ok) {
-                stats = await res.json();
+                const data = await res.json();
+                stats = data;
+                localStorage.setItem("dashboard_cache", JSON.stringify(data));
             } else {
                 console.error("Failed to load stats");
+                // Only error if we didn't show cache
+                if (!stats) toast.error("加载看板数据失败");
             }
         } catch (e) {
             console.error(e);
-            toast.error("加载看板数据失败");
+            if (!stats) toast.error("加载看板数据失败");
         } finally {
             loading = false;
         }
@@ -228,15 +246,29 @@
                         </div>
                     </div>
                     
-                    <div class="w-full pt-6 border-t border-dashed border-border/60 space-y-4">
-                        <p class="text-center text-sm text-muted-foreground italic font-medium font-serif">
-                            “此刻的相遇，是命运最好的安排。”
-                        </p>
-                        
-                        <Button class="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg transition-all h-11 text-base" variant="default">
-                            <Dices class="mr-2 h-5 w-5" /> 我命由我不由天，抽卡！
-                        </Button>
-                    </div>
+                        <div class="w-full pt-6 border-t border-dashed border-border/60 space-y-4">
+                            <p class="text-center text-sm text-muted-foreground italic font-medium font-serif">
+                                “此刻的相遇，是命运最好的安排。”
+                            </p>
+                            
+                            {#if stats?.gacha_confirmed}
+                                <Button disabled class="w-full bg-muted text-muted-foreground shadow-none h-11 text-base">
+                                    今天已逆天行事过，明天再来吧！
+                                </Button>
+                            {:else if (stats?.gacha_remaining ?? 0) <= 0}
+                                <Button disabled class="w-full bg-muted text-muted-foreground shadow-none h-11 text-base">
+                                    今天逆天已力竭，请明天再来
+                                </Button>
+                            {:else}
+                                <Button 
+                                    class="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg transition-all h-11 text-base" 
+                                    variant="default"
+                                    onclick={() => goto('/gacha')}
+                                >
+                                    <Dices class="mr-2 h-5 w-5" /> 我命由我不由天，抽卡！
+                                </Button>
+                            {/if}
+                        </div>
                  {:else}
                      <div class="flex flex-col items-center justify-center h-full text-muted-foreground">
                          <span class="mb-2 text-2xl">⏳</span>
