@@ -11,15 +11,17 @@ RUN apt-get update && apt-get install -y \
     libwebp-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制 Cargo 配置
+# 复制 Cargo 配置 (包括所有工作区成员)
 COPY Cargo.toml Cargo.lock ./
 COPY migration/Cargo.toml ./migration/
+COPY src-tauri/Cargo.toml ./src-tauri/
 
 # 创建虚拟的 src 目录以缓存依赖
-RUN mkdir -p src migration/src && \
+RUN mkdir -p src migration/src src-tauri/src && \
     echo "fn main() {}" > src/main.rs && \
     echo "" > src/lib.rs && \
-    echo "" > migration/src/lib.rs
+    echo "" > migration/src/lib.rs && \
+    echo "fn main() {}" > src-tauri/src/main.rs
 
 # 预编译依赖
 RUN cargo build --release && rm -rf src migration/src
