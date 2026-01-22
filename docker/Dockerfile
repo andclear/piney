@@ -1,6 +1,6 @@
 # 多阶段构建 Dockerfile
 # Stage 1: 构建 Rust 后端
-FROM rust:1.83-slim-bookworm AS rust-builder
+FROM rust:slim-bookworm AS rust-builder
 
 WORKDIR /app
 

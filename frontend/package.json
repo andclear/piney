@@ -12,7 +12,6 @@
     "devDependencies": {
         "@internationalized/date": "^3.10.1",
         "@lucide/svelte": "^0.561.0",
-        "@rollup/rollup-darwin-x64": "^4.54.0",
         "@sveltejs/adapter-static": "^3.0.1",
         "@sveltejs/kit": "^2.0.0",
         "@sveltejs/vite-plugin-svelte": "^4.0.0",
