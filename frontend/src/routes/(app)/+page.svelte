@@ -220,7 +220,7 @@
 
         <!-- Daily Lucky (Right) -->
         <div class="lg:col-span-2 flex flex-col h-full">
-             <h2 class="text-xl font-bold tracking-tight mb-4">今日幸运卡</h2>
+             <h2 class="text-xl font-bold tracking-tight mb-4">今日幸运星</h2>
              
              <div class="rounded-2xl border bg-card shadow-sm p-6 h-full flex flex-col justify-between relative overflow-hidden">
                  <!-- Background decoration -->

@@ -1648,3 +1648,87 @@ pub async fn permanent_delete(
     invalidate_cache();
     Ok(StatusCode::OK)
 }
+
+/// POST /api/trash/cards/batch-delete - 批量永久删除
+#[derive(Deserialize)]
+pub struct BatchTrashDeleteRequest {
+    pub ids: Vec<Uuid>,
+}
+
+pub async fn batch_delete_trash(
+    State(db): State<DatabaseConnection>,
+    Json(payload): Json<BatchTrashDeleteRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if payload.ids.is_empty() {
+        return Ok(StatusCode::OK);
+    }
+
+    let storage_dir = crate::utils::paths::get_data_path("cards");
+
+    // 删除每个卡片的文件目录
+    for id in &payload.ids {
+        let card_path = storage_dir.join(id.to_string());
+        if card_path.exists() {
+            if let Err(e) = tokio::fs::remove_dir_all(&card_path).await {
+                tracing::warn!("Failed to delete card directory {}: {}", id, e);
+            }
+        }
+    }
+
+    // 批量删除数据库记录
+    character_card::Entity::delete_many()
+        .filter(character_card::Column::Id.is_in(payload.ids))
+        .exec(&db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    invalidate_cache();
+    Ok(StatusCode::OK)
+}
+
+/// DELETE /api/trash/cards/clear - 清空回收站
+#[derive(Serialize)]
+pub struct ClearTrashResponse {
+    pub deleted_count: u64,
+}
+
+pub async fn clear_trash(
+    State(db): State<DatabaseConnection>,
+) -> Result<Json<ClearTrashResponse>, (StatusCode, String)> {
+    // 1. 获取所有已删除卡片的 ID
+    let cards = character_card::Entity::find()
+        .filter(character_card::Column::DeletedAt.is_not_null())
+        .all(&db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let ids: Vec<Uuid> = cards.iter().map(|c| c.id).collect();
+    let count = ids.len() as u64;
+
+    if ids.is_empty() {
+        return Ok(Json(ClearTrashResponse { deleted_count: 0 }));
+    }
+
+    // 2. 删除所有关联文件
+    let storage_dir = crate::utils::paths::get_data_path("cards");
+    for id in &ids {
+        let card_path = storage_dir.join(id.to_string());
+        if card_path.exists() {
+            if let Err(e) = tokio::fs::remove_dir_all(&card_path).await {
+                tracing::warn!("Failed to delete card directory {}: {}", id, e);
+            }
+        }
+    }
+
+    // 3. 批量删除数据库记录
+    character_card::Entity::delete_many()
+        .filter(character_card::Column::Id.is_in(ids))
+        .exec(&db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    invalidate_cache();
+    Ok(Json(ClearTrashResponse {
+        deleted_count: count,
+    }))
+}

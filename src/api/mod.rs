@@ -3,6 +3,7 @@
 //! 定义所有 RESTful API 路由
 
 pub mod ai;
+pub mod backup;
 pub mod cards;
 pub mod categories;
 pub mod dashboard;
@@ -76,6 +77,8 @@ pub fn routes(db: DatabaseConnection) -> Router {
         .route("/trash/cards", get(cards::list_trash))
         .route("/trash/cards/{id}/restore", post(cards::restore_card))
         .route("/trash/cards/{id}", delete(cards::permanent_delete))
+        .route("/trash/cards/batch-delete", post(cards::batch_delete_trash))
+        .route("/trash/cards/clear", delete(cards::clear_trash))
         // 分类
         .route("/categories", get(categories::list))
         .route("/categories", post(categories::create))
@@ -114,5 +117,8 @@ pub fn routes(db: DatabaseConnection) -> Router {
             "/ai/doctor/history/item/{id}",
             delete(ai::doctor_history_delete),
         )
+        // 数据备份
+        .route("/backup/export", get(backup::export_backup))
+        .route("/backup/import", post(backup::import_backup))
         .with_state(db)
 }

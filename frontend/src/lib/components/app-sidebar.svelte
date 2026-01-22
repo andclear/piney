@@ -33,12 +33,12 @@
 		],
 		// Group 2: AI 实验室
 		aiLab: [
-			{ title: "角色融合", url: "/ai/fusion", icon: Dna },
-			{
-				title: "世界书生成",
-				url: "/ai/worldbook-create",
-				icon: BookPlus,
-			},
+		//	{ title: "角色融合", url: "/ai/fusion", icon: Dna },
+		//	{
+		//		title: "世界书生成",
+		//		url: "/ai/worldbook-create",
+		//		icon: BookPlus,
+		//	},
 			{ title: "前端样式", url: "/ai/code", icon: SquareCode },
 			{
 				title: "QR生成",
