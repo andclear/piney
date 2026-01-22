@@ -37,11 +37,11 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
-# 复制前端配置
-COPY frontend/package.json frontend/package-lock.json* ./
+# 只复制 package.json (不复制 package-lock.json，避免跨平台依赖问题)
+COPY frontend/package.json ./
 
-# 安装依赖 (使用 npm install 而非 npm ci，避免跨平台 lockfile 问题)
-RUN npm install --legacy-peer-deps
+# 安装依赖 (在 Linux 上重新生成 lockfile)
+RUN npm install
 
 # 复制前端源码
 COPY frontend ./
