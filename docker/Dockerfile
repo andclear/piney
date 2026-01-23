@@ -8,8 +8,8 @@ FROM --platform=$BUILDPLATFORM rust:slim-bookworm AS chef
 # 复制 xx 工具
 COPY --from=xx / /
 WORKDIR /app
-# 安装基础构建工具 (clang/lld 用于跨平台链接)
-RUN apt-get update && apt-get install -y clang lld pkg-config git
+# 安装基础构建工具 (clang/lld 用于跨平台链接，cmake/perl/make 用于部分 crate 源码构建)
+RUN apt-get update && apt-get install -y clang lld pkg-config git cmake perl make build-essential
 RUN cargo install cargo-chef
 
 # Stage 2: Planner - 计算依赖配方
@@ -49,6 +49,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 # 复制源码并构建
 COPY frontend ./
+RUN npx svelte-kit sync
 RUN npm run build
 
 # Stage 5: Runtime - 最终运行时环境
