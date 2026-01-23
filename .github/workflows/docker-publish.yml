@@ -52,8 +52,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 暂时禁用缓存以强制完全重新构建
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
           # 使用 QEMU 原生构建两种架构 (ARM64 构建较慢但可靠)
           platforms: linux/amd64,linux/arm64
           provenance: false
