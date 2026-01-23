@@ -167,7 +167,7 @@ export class AiService {
 
         this.activeRequests++;
         try {
-            // 加载全局配置（如破限）
+            // 加载全局配置
             const globalPrompt = await this.getGlobalPrompt();
 
             const variables = {

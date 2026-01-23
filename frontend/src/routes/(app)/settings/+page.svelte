@@ -200,11 +200,11 @@
         <TabsList class="mb-4 gap-4">
             <TabsTrigger value="ai" class="gap-2">
                 <Sparkles class="h-4 w-4" />
-                AI 配置
+                API 配置
             </TabsTrigger>
             <TabsTrigger value="prompts" class="gap-2">
                 <Ghost class="h-4 w-4" />
-                提示词配置
+                全局提示词
             </TabsTrigger>
             <TabsTrigger value="about" class="gap-2">
                 <Info class="h-4 w-4" />
@@ -471,9 +471,9 @@
                         class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                         <div>
-                            <Card.Title>破限提示词</Card.Title>
+                            <Card.Title>全局提示词（可选）</Card.Title>
                             <Card.Description class="mt-2"
-                                >会附在所有 AI 调用的 Prompt 前面。</Card.Description
+                                >会附在所有 AI 调用的 Prompt 之前。</Card.Description
                             >
                         </div>
                         <Button
@@ -484,7 +484,7 @@
                                     await api.patch("/settings", {
                                         global_prompt: globalPrompt,
                                     });
-                                    toast.success("破限提示词已保存");
+                                    toast.success("已保存");
                                 } catch (e) {
                                     toast.error("保存失败", {
                                         description: String(e),
@@ -503,11 +503,11 @@
                 <Card.Content>
                     <Textarea
                         bind:value={globalPrompt}
-                        placeholder="这里输入破限提示词——用来破限的，否则过于R18的角色卡无法应用AI指令。你可以直接到你现在使用的预设里复制一份破限条目中的内容……"
+                        placeholder="请输入全局提示词（非必要设置项）"
                         class="min-h-[200px] resize-y font-mono text-sm"
                     />
                     <p class="text-xs text-muted-foreground mt-4">
-                        提示：破限提示词会作为 System Prompt 附加到每次 AI
+                        提示：全局提示词会作为 System Prompt 附加到每次 AI
                         调用中。如果你不需要，清除所有内容，然后点击保存即可。
                     </p>
                 </Card.Content>

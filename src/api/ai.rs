@@ -474,16 +474,16 @@ pub async fn generate_overview(
         channel.name, channel.model_id
     ));
 
-    // 1.5. 获取破限提示词
+    // 1.5. 获取全局提示词
     let global_prompt_setting = setting::Entity::find_by_id("global_prompt")
         .one(&db)
         .await
         .unwrap_or(None);
     let global_prompt = global_prompt_setting.map(|s| s.value).unwrap_or_default();
     if !global_prompt.is_empty() {
-        logs.push(format!("破限提示词已加载 ({} 字符)", global_prompt.len()));
+        logs.push(format!("全局提示词已加载 ({} 字符)", global_prompt.len()));
     } else {
-        logs.push("未配置破限提示词".to_string());
+        logs.push("未配置局全局提示词".to_string());
     }
 
     // 2. 获取角色卡数据
@@ -627,7 +627,7 @@ Creator Comment: {}
     let base = channel.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base);
 
-    // 构建系统提示词：破限提示词 + 功能提示词
+    // 构建系统提示词：全局提示词 + 功能提示词
     let base_system_prompt = "你是一位专业的角色卡分析师。请分析角色设定，返回纯 JSON 格式结果，不要包含 markdown 标记。";
     let system_prompt_content = if global_prompt.is_empty() {
         base_system_prompt.to_string()

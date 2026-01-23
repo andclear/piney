@@ -25,7 +25,7 @@ export class PromptBuilder {
     /**
      * 获取系统提示词
      * @param feature 功能ID
-     * @param globalPrompt 全局破限提示词 (可选)
+     * @param globalPrompt 全局提示词 (可选)
      */
     static getSystemPrompt(feature: AiFeature, globalPrompt?: string): string {
         const base = SYSTEM_PROMPTS[feature] || "You are a helpful assistant.";
