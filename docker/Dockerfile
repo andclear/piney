@@ -31,7 +31,8 @@ ENV PKG_CONFIG_ALLOW_CROSS=1 \
 
 # 安装目标架构的系统依赖 (libwebp, openssl 等)
 # xx-apt-get 会自动根据 TARGETPLATFORM 安装对应的架构包
-RUN xx-apt-get install -y libssl-dev libwebp-dev gcc libc6-dev pkg-config
+# 注意：不要在此安装 pkg-config，应使用 Stage 1 基础镜像中的宿主机版本，否则会导致架构不匹配无法运行
+RUN xx-apt-get install -y libssl-dev libwebp-dev gcc libc6-dev
 
 COPY --from=planner /app/recipe.json recipe.json
 # 构建依赖层 (如果 Cargo.toml/lock 未变，此层将使用缓存)
