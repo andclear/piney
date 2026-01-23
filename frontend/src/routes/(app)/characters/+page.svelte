@@ -1,9 +1,11 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { goto } from "$app/navigation";
+    import { page } from "$app/stores";
     import { flip } from "svelte/animate";
     import { toast } from "svelte-sonner";
     import { cn } from "$lib/utils";
+    import { Skeleton } from "$lib/components/ui/skeleton";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Badge } from "$lib/components/ui/badge";
@@ -578,8 +580,37 @@
     // ============ 生命周期 ============
     onMount(async () => {
         breadcrumbs.set([{ label: "角色库" }]);
-        await Promise.all([fetchCategories(), fetchCards()]);
-        loading = false;
+        
+        // 使用预加载数据（如果存在）
+        const preloaded = $page.data;
+        if (preloaded?.preloaded) {
+            categories = preloaded.categories || [];
+            const data = preloaded.cardsData;
+            if (data?.items) {
+                cards = data.items;
+                totalItems = data.total;
+                currentPage = data.page;
+                pageSize = data.page_size;
+                totalPages = data.total_pages;
+                
+                // 计算标签统计
+                const counts: Record<string, number> = {};
+                const tagSet = new Set<string>();
+                cards.forEach((c) => {
+                    c.tags.forEach((t) => {
+                        tagSet.add(t);
+                        counts[t] = (counts[t] || 0) + 1;
+                    });
+                });
+                allTags = Array.from(tagSet).sort();
+                tagCounts = counts;
+            }
+            loading = false;
+        } else {
+            // 回退到传统加载方式
+            await Promise.all([fetchCategories(), fetchCards()]);
+            loading = false;
+        }
     });
 
     // ============ 响应式 ============
@@ -1008,10 +1039,17 @@
 
     <!-- 角色卡列表 -->
     {#if loading}
-        <div class="flex items-center justify-center py-20">
-            <div
-                class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"
-            ></div>
+        <!-- 骨架屏 -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
+            {#each Array(10) as _}
+                <div class="rounded-xl overflow-hidden bg-card shadow-md">
+                    <Skeleton class="aspect-[2/3] w-full" />
+                    <div class="p-3 space-y-2">
+                        <Skeleton class="h-4 w-3/4" />
+                        <Skeleton class="h-3 w-1/2" />
+                    </div>
+                </div>
+            {/each}
         </div>
     {:else if filteredCards.length === 0}
         <div class="text-center py-20 text-muted-foreground">

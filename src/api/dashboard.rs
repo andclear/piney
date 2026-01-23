@@ -47,44 +47,16 @@ pub struct DashboardStats {
 pub static DASHBOARD_CACHE: Lazy<Arc<RwLock<Option<(String, DashboardStats)>>>> =
     Lazy::new(|| Arc::new(RwLock::new(None)));
 
+// 保留函数以兼容现有调用，但不再使用缓存
 pub fn invalidate_cache() {
-    if let Ok(mut cache) = DASHBOARD_CACHE.write() {
-        *cache = None;
-    }
+    // 不再使用后端缓存，此函数保留仅为兼容性
 }
 
 pub async fn get_dashboard_stats(
     State(db): State<DatabaseConnection>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-    // 0. Check Cache
-    // We will still use the cache for heavy stats, but we MUST refresh the gacha status
-    // on every request to support manual DB updates or other out-of-band changes.
-    let mut stats_to_return: Option<DashboardStats> = None;
-
-    if let Ok(cache) = DASHBOARD_CACHE.read() {
-        if let Some((date, cached_stats)) = &*cache {
-            if date == &today {
-                stats_to_return = Some(cached_stats.clone());
-            }
-        }
-    }
-
-    // Always fetch fresh Gacha status
+    // 获取抽卡状态
     let (gacha_remaining, gacha_confirmed) = check_and_reset_gacha(&db).await?;
-
-    if let Some(mut stats) = stats_to_return {
-        // Update the cached stats with fresh gacha info
-        stats.gacha_remaining = gacha_remaining;
-        stats.gacha_confirmed = gacha_confirmed;
-
-        // Return immediately (we don't need to re-cache here strictly,
-        // effectively we treat gacha status as dynamic)
-        return Ok(Json(stats));
-    }
-
-    // --- If no cache, perform heavy queries ---
 
     // 1. 基本统计
     let total_characters = character_card::Entity::find()
@@ -159,11 +131,6 @@ pub async fn get_dashboard_stats(
         gacha_remaining,
         gacha_confirmed,
     };
-
-    // Write Cache
-    if let Ok(mut cache) = DASHBOARD_CACHE.write() {
-        *cache = Some((today, stats.clone()));
-    }
 
     Ok(Json(stats))
 }

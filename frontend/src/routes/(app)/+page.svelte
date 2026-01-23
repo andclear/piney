@@ -40,17 +40,25 @@
     onMount(async () => {
         breadcrumbs.set([]);
         
-        // 1. Try Cache
+        // SWR 策略：先显示缓存（如果有效），后台刷新数据
+        const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
         const cached = localStorage.getItem("dashboard_cache");
-        if (cached) {
+        const cachedTime = localStorage.getItem("dashboard_cache_time");
+        
+        // 检查缓存是否有效（5分钟内）
+        const isCacheValid = cached && cachedTime && 
+            (Date.now() - parseInt(cachedTime)) < CACHE_TTL;
+        
+        if (isCacheValid) {
             try {
                 stats = JSON.parse(cached);
-                loading = false; // Show cached content immediately
+                loading = false; // 立即显示缓存内容
             } catch (e) {
                 console.error("Cache parse error", e);
             }
         }
 
+        // 无论是否有缓存，都后台刷新数据
         try {
             const token = localStorage.getItem("auth_token");
             const res = await fetch(`${API_BASE}/api/dashboard`, {
@@ -59,10 +67,11 @@
             if (res.ok) {
                 const data = await res.json();
                 stats = data;
+                // 更新缓存
                 localStorage.setItem("dashboard_cache", JSON.stringify(data));
+                localStorage.setItem("dashboard_cache_time", Date.now().toString());
             } else {
                 console.error("Failed to load stats");
-                // Only error if we didn't show cache
                 if (!stats) toast.error("加载看板数据失败");
             }
         } catch (e) {
@@ -74,7 +83,8 @@
     });
 
     function formatTime(iso: string) {
-        const d = new Date(iso);
+        // 后端返回的是 UTC 时间但没有 Z 后缀，需要手动添加
+        const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
         const now = new Date();
         const diff = (now.getTime() - d.getTime()) / 1000;
         

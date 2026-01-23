@@ -40,11 +40,11 @@
 		//		icon: BookPlus,
 		//	},
 			{ title: "前端样式", url: "/ai/code", icon: SquareCode },
-			{
-				title: "QR生成",
-				url: "/ai/quickreply",
-				icon: MessageSquareReply,
-			},
+		//	{
+		//		title: "QR生成",
+		//		url: "/ai/quickreply",
+		//		icon: MessageSquareReply,
+		//	},
 		],
 		// Group 3: 系统
 		system: [

@@ -11,6 +11,7 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Separator } from "$lib/components/ui/separator";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
+    import { Skeleton } from "$lib/components/ui/skeleton";
     import { toast } from "svelte-sonner";
     import {
         ArrowLeft,
@@ -56,6 +57,7 @@
     import { AiFeature } from "$lib/ai/types";
 
     import { API_BASE, resolveUrl } from "$lib/api";
+    import { cardCache } from "$lib/stores/cardCache";
     let cardId = $page.params.id;
     let card: any = null;
     let loading = true;
@@ -441,8 +443,66 @@
     }
 
     onMount(async () => {
-        await loadCard();
+        // 使用预加载数据（如果存在）
+        const preloaded = $page.data;
+        if (preloaded?.card) {
+            card = preloaded.card;
+            initializeCardData();
+            loading = false;
+        } else {
+            await loadCard();
+        }
     });
+    
+    // 抽取初始化逻辑为独立函数
+    function initializeCardData() {
+        if (!card) return;
+        
+        // Use updated_at timestamp for cache busting on initial load
+        if (!avatarKey && card.updated_at) {
+            avatarKey = new Date(card.updated_at).getTime();
+        }
+
+        breadcrumbs.set([
+            { label: "角色库", href: "/characters" },
+            { label: card.name || "详细信息" },
+        ]);
+
+        editingNote = card.user_note || "";
+        editingSummary = card.custom_summary || "";
+        tags = tryParseTags(card.tags || "[]");
+
+        // Parse JSON Data for Persona Tab
+        try {
+            if (typeof card.data === "string") {
+                card.data = JSON.parse(card.data || "{}");
+            }
+            const jsonData = card.data || {};
+            const v2Data = jsonData.data || {};
+
+            // Mapping Logic
+            formName = card.name || "";
+            formDescription = card.description || "";
+
+            // Priority: V2 -> Root -> Fallback
+            formFirstMes = v2Data.first_mes || jsonData.first_mes || "";
+            formAltGreetings = v2Data.alternate_greetings || [];
+            formMesExample = v2Data.mes_example || jsonData.mes_example || "";
+            formScenario = v2Data.scenario || jsonData.scenario || "";
+            formPersonality = v2Data.personality || jsonData.personality || "";
+            formVersion = v2Data.character_version || "";
+            formCreator = v2Data.creator || jsonData.creator || card.author || "";
+
+            updateFormSnapshot();
+            
+            // 从 localStorage 读取额外设定项开关状态
+            const extraSettingsKey = `piney_extra_settings_${cardId}`;
+            showExtraSettings = localStorage.getItem(extraSettingsKey) === "true";
+        } catch (jsonErr) {
+            console.error("Failed to parse card data JSON", jsonErr);
+            toast.error("角色卡数据解析失败，部分字段可能无法显示");
+        }
+    }
 
     async function loadCard() {
         loading = true;
@@ -453,54 +513,11 @@
             });
             if (!res.ok) throw new Error("加载角色卡失败");
             card = await res.json();
-
-            // Use updated_at timestamp for cache busting on initial load
-            if (!avatarKey && card.updated_at) {
-                avatarKey = new Date(card.updated_at).getTime();
-            }
-
-            breadcrumbs.set([
-                { label: "角色库", href: "/characters" },
-                { label: card.name || "详细信息" },
-            ]);
-
-            editingNote = card.user_note || "";
-            editingSummary = card.custom_summary || "";
-            tags = tryParseTags(card.tags || "[]");
-
-            // Parse JSON Data for Persona Tab
-            try {
-                if (typeof card.data === "string") {
-                    card.data = JSON.parse(card.data || "{}");
-                }
-                const jsonData = card.data || {};
-                const v2Data = jsonData.data || {};
-
-                // Mapping Logic
-                formName = card.name || "";
-                formDescription = card.description || "";
-
-                // Priority: V2 -> Root -> Fallback
-                formFirstMes = v2Data.first_mes || jsonData.first_mes || "";
-                formAltGreetings = v2Data.alternate_greetings || [];
-                formMesExample =
-                    v2Data.mes_example || jsonData.mes_example || "";
-                formScenario = v2Data.scenario || jsonData.scenario || "";
-                formPersonality = v2Data.personality || jsonData.personality || "";
-                formVersion = v2Data.character_version || "";
-                formVersion = v2Data.character_version || "";
-                formCreator =
-                    v2Data.creator || jsonData.creator || card.author || "";
-
-                updateFormSnapshot();
-                
-                // 从 localStorage 读取额外设定项开关状态
-                const extraSettingsKey = `piney_extra_settings_${cardId}`;
-                showExtraSettings = localStorage.getItem(extraSettingsKey) === "true";
-            } catch (jsonErr) {
-                console.error("Failed to parse card data JSON", jsonErr);
-                toast.error("角色卡数据解析失败，部分字段可能无法显示");
-            }
+            
+            // 更新缓存
+            cardCache.set(cardId, card);
+            
+            initializeCardData();
         } catch (e) {
             console.error(e);
             toast.error("加载失败", { description: String(e) });
@@ -802,10 +819,29 @@
     <!-- 右侧内容区域 -->
     <div class="flex-1 min-h-0 overflow-y-auto pr-2">
         {#if loading}
-            <div class="flex items-center justify-center h-64">
-                <span class="loading loading-spinner text-primary"
-                    >加载中...</span
-                >
+            <!-- 骨架屏 -->
+            <div class="flex flex-col md:flex-row gap-8 items-start animate-pulse">
+                <!-- 左侧封面骨架屏 -->
+                <div class="w-full md:w-72 flex-shrink-0 space-y-4">
+                    <Skeleton class="aspect-[2/3] w-full rounded-2xl" />
+                    <div class="space-y-2">
+                        <Skeleton class="h-4 w-3/4" />
+                        <Skeleton class="h-4 w-1/2" />
+                    </div>
+                </div>
+                <!-- 右侧内容骨架屏 -->
+                <div class="flex-1 space-y-6">
+                    <Skeleton class="h-8 w-1/3" />
+                    <div class="space-y-3">
+                        <Skeleton class="h-4 w-full" />
+                        <Skeleton class="h-4 w-5/6" />
+                        <Skeleton class="h-4 w-4/6" />
+                    </div>
+                    <div class="space-y-3 pt-4">
+                        <Skeleton class="h-24 w-full" />
+                        <Skeleton class="h-24 w-full" />
+                    </div>
+                </div>
             </div>
         {:else if !card}
             <div class="text-center py-12 text-muted-foreground">

@@ -105,10 +105,11 @@
             title="未保存的更改"
         ></span>
     {/if}
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <!-- 标题区域 -->
         <div class="flex items-center gap-2">
             <MessageSquare class="h-4 w-4 text-muted-foreground" />
-            <Label>
+            <Label class="text-sm">
                 {#if currentIndex === 0}
                     开场白 (主)
                 {:else}
@@ -120,13 +121,16 @@
             </Badge>
         </div>
 
-        <div class="flex items-center gap-1">
+        <!-- 工具栏区域 -->
+        <div class="flex items-center gap-0.5 sm:gap-1 flex-wrap justify-end">
+            <!-- 翻页按钮 -->
             <Button
                 variant="ghost"
                 size="icon"
                 class="h-7 w-7"
                 disabled={currentIndex === 0}
                 onclick={prev}
+                title="上一个"
             >
                 <ChevronLeft class="h-4 w-4" />
             </Button>
@@ -137,12 +141,14 @@
                 class="h-7 w-7"
                 disabled={currentIndex === totalCount - 1}
                 onclick={next}
+                title="下一个"
             >
                 <ChevronRight class="h-4 w-4" />
             </Button>
 
-            <div class="w-px h-4 bg-border mx-1"></div>
+            <div class="w-px h-4 bg-border mx-0.5 sm:mx-1 hidden sm:block"></div>
 
+            <!-- 操作按钮 -->
              <Button
                 variant="ghost"
                 size="icon"
@@ -173,15 +179,17 @@
                 <Trash2 class="h-4 w-4" />
             </Button>
 
-            <div class="w-px h-4 bg-border mx-1"></div>
+            <div class="w-px h-4 bg-border mx-0.5 sm:mx-1"></div>
 
+            <!-- 全屏按钮：移动端只显示图标 -->
             <Button
                 variant="ghost"
-                size="sm"
-                class="h-7 text-[10px] px-2 text-muted-foreground hover:text-primary"
+                size="icon"
+                class="h-7 w-7 text-muted-foreground hover:text-primary"
                 onclick={() => (isZenMode = true)}
+                title="全屏编辑"
             >
-                <Maximize2 class="mr-1 h-3 w-3" /> 全屏编辑
+                <Maximize2 class="h-4 w-4" />
             </Button>
         </div>
     </div>

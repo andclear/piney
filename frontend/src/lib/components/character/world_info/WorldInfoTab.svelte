@@ -387,7 +387,7 @@
             data.character_book = {
                 ...data.character_book,
                 entries: data.character_book.entries.filter(
-                    (e: any) => e.id !== id,
+                    (e: any) => (e.id ?? e.uid) !== id,
                 ),
             };
         } else {
@@ -615,7 +615,7 @@
                         {entry}
                         {lastSaved}
                         bind:isOpen={openEntries[entry.id || entry.uid]}
-                        onDelete={() => deleteEntry(entry.id || entry.uid)}
+                        onDelete={() => deleteEntry(entry.id ?? entry.uid)}
                         {onChange}
                         onUpdate={(mutator) => {
                             mutator(entry);

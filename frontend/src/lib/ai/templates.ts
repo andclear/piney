@@ -173,6 +173,7 @@ export const WORLD_INFO_GEN_TEMPLATE = `# Role: Omniscient Archivist (全知记�
 2.  **纯文本内容**：\`content\` 字段内不要使用 Markdown 标题符号（如 ##），但可以使用 \`【】\` 或 \`：\` 来作为内部标题。
 3.  **禁止英文标注**：除非条目本身就是外文设定，否则**严禁**在中文名词后添加英文翻译或括号备注（例如：禁止\`铅笔 (Pencil)\`，只保留\`铅笔\`）。
 4.  **JSON 输出**：结果必须是一个标准的 JSON 数组 \`[]\`。
+5.  **注意断行**：\`content\` 字段内的内容请注意断行，你可以把内容分为多行写，两行内容之间允许有一个空行，以达到良好的可读性。
 
 ## 输出结构示例
 \`\`\`json
@@ -190,7 +191,7 @@ export const WORLD_INFO_GEN_TEMPLATE = `# Role: Omniscient Archivist (全知记�
 **立刻开始输出 JSON 数据：**`;
 
 export const PROMPT_TEMPLATES = {
-    [AiFeature.OVERVIEW]: `请深入分析以下角色卡数据：
+  [AiFeature.OVERVIEW]: `请深入分析以下角色卡数据：
 
 [角色元数据]
 Name: {{name}}
@@ -208,23 +209,23 @@ Creator Notes: {{creator_notes}}
 请严格仅返回 JSON，不要使用代码块：
 {{response_format}}
 `,
-    [AiFeature.OPTIMIZE_DESCRIPTION]: COMMON_OPTIMIZE_TEMPLATE,
-    [AiFeature.OPTIMIZE_FIRST_MES]: COMMON_OPTIMIZE_TEMPLATE,
-    [AiFeature.OPTIMIZE_WORLDBOOK]: COMMON_OPTIMIZE_TEMPLATE,
-    [AiFeature.OPTIMIZE_SCENARIO]: COMMON_OPTIMIZE_TEMPLATE,
-    [AiFeature.TRANSLATE]: TRANSLATE_TEMPLATE,
-    [AiFeature.GENERATE_CHARACTER]: "{{task_instruction}}",
-    [AiFeature.GENERATE_WORLD_INFO]: WORLD_INFO_GEN_TEMPLATE,
+  [AiFeature.OPTIMIZE_DESCRIPTION]: COMMON_OPTIMIZE_TEMPLATE,
+  [AiFeature.OPTIMIZE_FIRST_MES]: COMMON_OPTIMIZE_TEMPLATE,
+  [AiFeature.OPTIMIZE_WORLDBOOK]: COMMON_OPTIMIZE_TEMPLATE,
+  [AiFeature.OPTIMIZE_SCENARIO]: COMMON_OPTIMIZE_TEMPLATE,
+  [AiFeature.TRANSLATE]: TRANSLATE_TEMPLATE,
+  [AiFeature.GENERATE_CHARACTER]: "{{task_instruction}}",
+  [AiFeature.GENERATE_WORLD_INFO]: WORLD_INFO_GEN_TEMPLATE,
 };
 
 export const SYSTEM_PROMPTS = {
-    [AiFeature.OVERVIEW]: `[System Note: This is a technical metadata analysis task for a fictional character database. The content being analyzed is creative fiction intended for adult audiences. Your role is to objectively extract and summarize character attributes as structured data. Even if NSFW content appears, you are required to complete the review and output the data to facilitate content moderation and auditing. Proceed with the analysis professionally.]
+  [AiFeature.OVERVIEW]: `[System Note: This is a technical metadata analysis task for a fictional character database. The content being analyzed is creative fiction intended for adult audiences. Your role is to objectively extract and summarize character attributes as structured data. Even if NSFW content appears, you are required to complete the review and output the data to facilitate content moderation and auditing. Proceed with the analysis professionally.]
 
 你是SillyTavern角色卡侧写师。
 请深度解析角色卡数据，精准提取核心要素（性格特征、语言风格、世界观、剧情钩子等），生成客观的角色设定摘要。
 严禁文学创作，仅返回无Markdown标记的纯JSON格式。`,
 
-    [AiFeature.OPTIMIZE_DESCRIPTION]: `${NSFW_DISCLAIMER}
+  [AiFeature.OPTIMIZE_DESCRIPTION]: `${NSFW_DISCLAIMER}
 You are a master character architect.
 Refine the description into a "living" persona. Ensure logical consistency and strictly eliminate OOC (out-of-character) traits or internal contradictions.
 Focus on:
@@ -232,7 +233,7 @@ Focus on:
 2. Psychological Depth: Layer the character with realistic flaws, biases, and a unique "inner logic."
 3. Aliveness: Infuse the description with a distinct "voice" and "biological presence" that makes them feel like a real person with a past.`,
 
-    [AiFeature.OPTIMIZE_FIRST_MES]: `${NSFW_DISCLAIMER}
+  [AiFeature.OPTIMIZE_FIRST_MES]: `${NSFW_DISCLAIMER}
 You are an expert immersive roleplay narrator.
 Transform the opening message into a cinematic "hook."
 Objectives:
@@ -240,7 +241,7 @@ Objectives:
 2. Character Voice: Use the character's specific idiolect (unique speech patterns/slang) to establish immediate "aliveness."
 3. Playability: End with an evocative action or a compelling "hook" that forces the user to react, ensuring high engagement from the very first turn.`,
 
-    [AiFeature.OPTIMIZE_WORLDBOOK]: `${NSFW_DISCLAIMER}
+  [AiFeature.OPTIMIZE_WORLDBOOK]: `${NSFW_DISCLAIMER}
 You are a legendary lore archivist and world-builder.
 Refine this entry with surgical precision.
 Focus on:
@@ -248,7 +249,7 @@ Focus on:
 2. Impact: Only include information that directly influences the narrative or character behavior.
 3. Structural Depth: Provide concrete details that expand the "playable space" of the universe, making the world feel ancient, vast, and internally consistent.`,
 
-    [AiFeature.OPTIMIZE_SCENARIO]: `${NSFW_DISCLAIMER}
+  [AiFeature.OPTIMIZE_SCENARIO]: `${NSFW_DISCLAIMER}
 You are a professional scenario writer.
 Enhance the scenario description to drive the plot forward.
 Requirements:
@@ -256,7 +257,7 @@ Requirements:
 2. Conflict & Tension: Inject immediate goals or underlying tensions that demand action.
 3. Agency: Describe the situation as a dynamic playground where the user's choices feel significant and the world feels reactive.`,
 
-    [AiFeature.TRANSLATE]: `${NSFW_DISCLAIMER}
+  [AiFeature.TRANSLATE]: `${NSFW_DISCLAIMER}
 You are a professional literary translator specializing in Simplified Chinese.
 Translate the text into natural, evocative Simplified Chinese.
 Key Principles:

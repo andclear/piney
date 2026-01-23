@@ -13,6 +13,8 @@
     let selectedIndex = $state<number | null>(null);
     let remaining = $state(0);
     let loading = $state(true);
+    let totalCardCount = $state(0); // 系统中的角色卡总数
+    let displayCardCount = $derived(Math.min(3, totalCardCount)); // 实际显示的卡片数量
 
     onMount(async () => {
         await checkStatus();
@@ -21,20 +23,35 @@
     async function checkStatus() {
         try {
             const token = localStorage.getItem("auth_token");
-            const res = await fetch(`${API_BASE}/api/dashboard`, {
-                headers: token ? { "Authorization": `Bearer ${token}` } : {}
-            });
-            if (res.ok) {
-                const stats = await res.json();
+            
+            // 并行获取抽卡状态和卡片总数
+            const [dashboardRes, cardsRes] = await Promise.all([
+                fetch(`${API_BASE}/api/dashboard`, {
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                }),
+                fetch(`${API_BASE}/api/cards?page_size=1`, {
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                })
+            ]);
+            
+            if (dashboardRes.ok) {
+                const stats = await dashboardRes.json();
                 remaining = stats.gacha_remaining;
                 if (stats.gacha_confirmed) {
                     toast.error("今天已经完成抽卡了");
                     goto("/");
                 }
             }
+            
+            if (cardsRes.ok) {
+                const cardsData = await cardsRes.json();
+                totalCardCount = cardsData.total || 0;
+            }
+            
             loading = false;
         } catch (e) {
             console.error(e);
+            loading = false;
         }
     }
 
@@ -42,6 +59,15 @@
         if (remaining <= 0) {
             toast.error("次数已用完");
             return;
+        }
+        
+        if (totalCardCount === 0) {
+            toast.error("角色库中还没有角色卡哦，快去创建一个吧！");
+            return;
+        }
+        
+        if (totalCardCount < 3) {
+            toast.info(`角色卡不足3张，将使用${totalCardCount}张进行抽卡`);
         }
 
         phase = "shuffling";
@@ -227,20 +253,27 @@
     <div class="relative w-full h-[450px] sm:h-[550px] flex items-center justify-center perspective-1000">
         
         {#if phase === 'ready'}
-             <!-- Stacked Cards (Wider Spread) -->
-             <div class="relative w-56 sm:w-64 h-80 sm:h-96"
-                  style="cursor: url(&quot;data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='%238b5cf6' stroke='white' stroke-width='2'><path d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z'/></svg>&quot;) 16 16, auto;">
-                 {#each [0, 1, 2] as i}
-                     <div class="absolute inset-0 rounded-xl overflow-hidden shadow-2xl border border-white/10" 
-                          style="transform: rotate({i * 9 - 9}deg) translate({i * 12 - 12}px, -{i * 4}px); z-index: {i}; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-                         {@html CardBack}
-                     </div>
-                 {/each}
-             </div>
+             <!-- Stacked Cards (动态数量) -->
+             {#if displayCardCount === 0}
+                 <div class="text-center text-muted-foreground py-20">
+                     <p class="text-lg">还没有角色卡可供抽取</p>
+                     <p class="text-sm mt-2">去角色库创建角色后再来抽卡吧！</p>
+                 </div>
+             {:else}
+                 <div class="relative w-56 sm:w-64 h-80 sm:h-96"
+                      style="cursor: url(&quot;data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='%238b5cf6' stroke='white' stroke-width='2'><path d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z'/></svg>&quot;) 16 16, auto;">
+                     {#each Array(displayCardCount) as _, i}
+                         <div class="absolute inset-0 rounded-xl overflow-hidden shadow-2xl border border-white/10" 
+                              style="transform: rotate({i * 9 - (displayCardCount - 1) * 4.5}deg) translate({i * 12 - (displayCardCount - 1) * 6}px, -{i * 4}px); z-index: {i}; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                             {@html CardBack}
+                         </div>
+                     {/each}
+                 </div>
+             {/if}
 
         {:else if phase === 'shuffling'}
-             <!-- Shuffling Animation -->
-              {#each [0, 1, 2] as i}
+             <!-- Shuffling Animation (动态数量) -->
+              {#each Array(displayCardCount) as _, i}
                  <div class="absolute w-56 sm:w-64 h-80 sm:h-96 rounded-xl overflow-hidden shadow-2xl border border-white/10 animate-shuffle-{i}"
                       style="z-index: {10 - i};">
                      {@html CardBack}
@@ -313,9 +346,15 @@
     <!-- Controls -->
     <div class="w-full max-w-md space-y-4 z-20 min-h-[60px]">
         {#if phase === 'ready'}
-            <Button size="lg" class="w-full h-14 text-lg font-bold shadow-xl animate-bounce-slow bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 border-0" onclick={startGacha}>
-                <Sparkles class="mr-2 h-5 w-5" /> 我命其实还由天，抽卡！
-            </Button>
+            {#if displayCardCount === 0}
+                <Button size="lg" class="w-full h-14 text-lg font-bold" href="/characters">
+                    去创建角色
+                </Button>
+            {:else}
+                <Button size="lg" class="w-full h-14 text-lg font-bold shadow-xl animate-bounce-slow bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 border-0" onclick={startGacha}>
+                    <Sparkles class="mr-2 h-5 w-5" /> 我命其实还由天，抽卡！
+                </Button>
+            {/if}
         {:else if phase === 'shuffling'}
              <Button disabled size="lg" class="w-full h-14 text-lg font-bold bg-muted/50 text-muted-foreground backdrop-blur-sm">
                  <RotateCcw class="mr-2 h-5 w-5 animate-spin" /> 命运洗牌中...

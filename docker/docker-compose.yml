@@ -1,14 +1,12 @@
 services:
   piney:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: ghcr.io/andclear/piney:latest
     container_name: piney
     restart: unless-stopped
     ports:
       - "9696:9696"
     volumes:
-      - ../data:/app/data
+      - ./data:/app/data
     environment:
       - RUN_MODE=server
       - PORT=9696

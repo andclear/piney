@@ -194,8 +194,13 @@ export function startDiagnosis(cardId: string) {
 }
 
 export function stopDiagnosis(cardId: string) {
-    if (controllers.has(cardId)) {
-        controllers.get(cardId)?.abort();
+    const controller = controllers.get(cardId);
+    if (controller) {
+        try {
+            controller.abort();
+        } catch {
+            // AbortError 是预期行为，静默处理
+        }
         controllers.delete(cardId);
         doctorTasks.update(s => ({
             ...s,
