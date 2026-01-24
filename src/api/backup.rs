@@ -29,32 +29,90 @@ pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> 
         return Err((StatusCode::NOT_FOUND, "数据目录不存在".to_string()));
     }
 
-    // 生成带时间戳的文件名
+    // 1. 创建临时目录 data/temp
+    let temp_dir = data_dir.join("temp");
+    if !temp_dir.exists() {
+        fs::create_dir_all(&temp_dir).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("无法创建临时目录: {}", e),
+            )
+        })?;
+    }
+
+    // 2. 清理超过 1 小时的旧临时文件
+    let _ = tokio::task::spawn_blocking({
+        let temp_dir = temp_dir.clone();
+        move || {
+            if let Ok(entries) = fs::read_dir(temp_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(metadata) = entry.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            if let Ok(elapsed) = modified.elapsed() {
+                                if elapsed.as_secs() > 3600 {
+                                    let _ = fs::remove_file(entry.path());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // 3. 生成临时文件路径
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
     let filename = format!("piney_backup_{}.piney", timestamp);
+    let temp_filepath = temp_dir.join(&filename);
 
-    // 创建 tar.gz 到内存
-    let tar_gz_data = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
-        let mut tar_gz_buffer = Vec::new();
-        {
-            let encoder = GzEncoder::new(&mut tar_gz_buffer, Compression::default());
-            let mut tar_builder = Builder::new(encoder);
+    // 4. 将 tar.gz 写入临时文件
+    let temp_filepath_clone = temp_filepath.clone();
+    let data_dir_clone = data_dir.clone();
 
-            // 递归添加 data 目录下的所有文件
-            // 使用 append_dir_all 将 data_dir 的内容打包到 tar 的根目录
-            tar_builder
-                .append_dir_all(".", &data_dir)
-                .map_err(|e| format!("打包失败: {}", e))?;
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        // 创建文件
+        let file = fs::File::create(&temp_filepath_clone)
+            .map_err(|e| format!("无法创建临时文件: {}", e))?;
 
-            // 完成写入
-            let encoder = tar_builder
-                .into_inner()
-                .map_err(|e| format!("Tar finalize failed: {}", e))?;
-            encoder
-                .finish()
-                .map_err(|e| format!("Gzip finish failed: {}", e))?;
+        // Gzip 编码器
+        let encoder = GzEncoder::new(file, Compression::default());
+        let mut tar_builder = Builder::new(encoder);
+
+        // 递归添加 data 目录下的所有文件
+        // 排除 temp 目录本身，防止递归死循环
+        if let Ok(entries) = fs::read_dir(&data_dir_clone) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.file_name().and_then(|n| n.to_str()) == Some("temp") {
+                    continue;
+                }
+
+                // 计算相对路径
+                let relative_path = path
+                    .strip_prefix(&data_dir_clone)
+                    .map_err(|e| format!("路径错误: {}", e))?;
+
+                if path.is_dir() {
+                    tar_builder
+                        .append_dir_all(relative_path, &path)
+                        .map_err(|e| format!("打包目录失败 {:?}: {}", path, e))?;
+                } else {
+                    tar_builder
+                        .append_path_with_name(&path, relative_path)
+                        .map_err(|e| format!("打包文件失败 {:?}: {}", path, e))?;
+                }
+            }
         }
-        Ok(tar_gz_buffer)
+
+        // 完成写入
+        let encoder = tar_builder
+            .into_inner()
+            .map_err(|e| format!("Tar finalize failed: {}", e))?;
+        encoder
+            .finish()
+            .map_err(|e| format!("Gzip finish failed: {}", e))?;
+
+        Ok(())
     })
     .await
     .map_err(|e| {
@@ -64,6 +122,17 @@ pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> 
         )
     })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    // 5. 打开文件并流式返回
+    let file = tokio::fs::File::open(&temp_filepath).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("无法读取临时文件: {}", e),
+        )
+    })?;
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = Body::from_stream(stream);
 
     // 构建响应头
     let mut headers = HeaderMap::new();
@@ -78,7 +147,7 @@ pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> 
             .unwrap(),
     );
 
-    Ok((headers, Body::from(tar_gz_data)))
+    Ok((headers, body))
 }
 
 /// POST /api/backup/import - 导入 .piney 备份文件并恢复数据

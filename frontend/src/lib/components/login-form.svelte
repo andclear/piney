@@ -95,7 +95,7 @@
 						<p
 							class="text-center text-muted-foreground text-balance text-xs"
 						>
-							如果忘了用户名和密码就到XX里找
+							如果忘了用户名和密码就到/data/config.yml中查看
 						</p>
 					</div>
 				</FieldGroup>

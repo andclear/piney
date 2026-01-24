@@ -3,7 +3,7 @@
     import { breadcrumbs } from "$lib/stores/breadcrumb";
     import * as Card from "$lib/components/ui/card";
     import { Button } from "$lib/components/ui/button";
-    import { API_BASE, resolveUrl } from "$lib/api";
+    import { api, resolveUrl } from "$lib/api";
     import { User, Book, Zap, Database, ArrowRight, Sparkles, Dices } from "lucide-svelte";
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
@@ -60,19 +60,19 @@
 
         // 无论是否有缓存，都后台刷新数据
         try {
-            const token = localStorage.getItem("auth_token");
-            const res = await fetch(`${API_BASE}/api/dashboard`, {
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (res.ok) {
-                const data = await res.json();
-                stats = data;
+            const res = await api.get<DashboardStats>("/dashboard");
+            
+            if (res.success && res.data) {
+                stats = res.data;
                 // 更新缓存
-                localStorage.setItem("dashboard_cache", JSON.stringify(data));
+                localStorage.setItem("dashboard_cache", JSON.stringify(res.data));
                 localStorage.setItem("dashboard_cache_time", Date.now().toString());
             } else {
-                console.error("Failed to load stats");
-                if (!stats) toast.error("加载看板数据失败");
+                console.error("Failed to load stats", res.error);
+                // 如果是 401，api.get 内部已经处理了跳转，这里不需要额外 toast，避免重复
+                if (res.error && !res.error.includes("401") && !stats) {
+                    toast.error("加载看板数据失败");
+                }
             }
         } catch (e) {
             console.error(e);

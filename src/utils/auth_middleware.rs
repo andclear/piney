@@ -28,16 +28,15 @@ pub async fn auth(
     }
     let token = &auth_header[7..];
 
-    // 3. 获取 Config 中的 secret
-    let conf = match config.get() {
-        Some(c) => c,
-        None => return Err(StatusCode::UNAUTHORIZED),
-    };
+    // 3. 获取 Config 中的 secret (确保已初始化)
+    if !config.is_initialized() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     // 4. 验证 Token
     let token_data = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(conf.jwt_secret.as_bytes()),
+        &DecodingKey::from_secret(config.get_jwt_secret().as_bytes()),
         &Validation::default(),
     )
     .map_err(|e| {

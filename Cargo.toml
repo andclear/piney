@@ -49,7 +49,6 @@ image = { version = "0.24", features = ["jpeg", "png", "webp", "default"] }
 
 # 认证与配置
 serde_yaml = "0.9"
-argon2 = "0.5"
 jsonwebtoken = "9.2"
 rand = "0.8"
 
@@ -97,7 +96,6 @@ image.workspace = true
 webp.workspace = true
 async-trait.workspace = true
 serde_yaml.workspace = true
-argon2.workspace = true
 jsonwebtoken.workspace = true
 rand.workspace = true
 migration = { path = "migration" }

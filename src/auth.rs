@@ -1,7 +1,3 @@
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
 use axum::{
     extract::{Json, State},
     http::StatusCode,
@@ -11,8 +7,6 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 
 use crate::config::ConfigState;
@@ -72,24 +66,12 @@ async fn setup(
         return Err((StatusCode::BAD_REQUEST, "Already initialized".to_string()));
     }
 
-    // Hash password
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let password_hash = argon2
-        .hash_password(payload.password.as_bytes(), &salt)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .to_string();
+    // Direct plain text password
+    let password = payload.password;
 
-    // Generate JWT secret
-    let jwt_secret: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-
-    // Save
+    // Save (jwt_secret is managed internally)
     config
-        .save(payload.username.clone(), password_hash, jwt_secret.clone())
+        .save(payload.username.clone(), password)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Auto login (generate token)
@@ -106,7 +88,7 @@ async fn setup(
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(jwt_secret.as_bytes()),
+        &EncodingKey::from_secret(config.get_jwt_secret().as_bytes()),
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -127,14 +109,8 @@ async fn login(
         return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()));
     }
 
-    // Verify password
-    let parsed_hash = PasswordHash::new(&conf.password_hash)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if Argon2::default()
-        .verify_password(payload.password.as_bytes(), &parsed_hash)
-        .is_err()
-    {
+    // Verify password (plain text)
+    if conf.password != payload.password {
         return Err((StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()));
     }
 
@@ -152,7 +128,7 @@ async fn login(
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(conf.jwt_secret.as_bytes()),
+        &EncodingKey::from_secret(config.get_jwt_secret().as_bytes()),
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
@@ -175,14 +151,8 @@ async fn update_profile(
         None => return Err((StatusCode::UNAUTHORIZED, "Not initialized".to_string())),
     };
 
-    // 1. Verify current password
-    let parsed_hash = PasswordHash::new(&conf.password_hash)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    if Argon2::default()
-        .verify_password(payload.current_password.as_bytes(), &parsed_hash)
-        .is_err()
-    {
+    // 1. Verify current password (plain text)
+    if conf.password != payload.current_password {
         return Err((
             StatusCode::UNAUTHORIZED,
             "Invalid current password".to_string(),
@@ -194,12 +164,8 @@ async fn update_profile(
     if let Some(new_name) = payload.new_username {
         if !new_name.is_empty() && new_name != conf.username {
             conf.username = new_name;
-            // Rotate JWT secret to force re-login on all devices when username changes
-            conf.jwt_secret = thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(32)
-                .map(char::from)
-                .collect();
+            // Note: JWT secret rotation is disabled for file-based secret management simplicity
+            // To force logout, one would need to manually remove the .jwt_secret file and restart
             needs_save = true;
         }
     }
@@ -207,20 +173,7 @@ async fn update_profile(
     // 3. Update Password
     if let Some(new_pass) = payload.new_password {
         if !new_pass.is_empty() {
-            let salt = SaltString::generate(&mut OsRng);
-            let argon2 = Argon2::default();
-            let new_hash = argon2
-                .hash_password(new_pass.as_bytes(), &salt)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-                .to_string();
-
-            conf.password_hash = new_hash;
-            // Rotate JWT secret to force re-login on all devices
-            conf.jwt_secret = thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(32)
-                .map(char::from)
-                .collect();
+            conf.password = new_pass;
             needs_save = true;
         }
     }
@@ -228,7 +181,7 @@ async fn update_profile(
     // 4. Save
     if needs_save {
         config
-            .save(conf.username, conf.password_hash, conf.jwt_secret)
+            .save(conf.username, conf.password)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         Ok(Json("Profile updated"))
     } else {

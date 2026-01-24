@@ -1,10 +1,4 @@
 use anyhow::Result;
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
-};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -15,77 +9,131 @@ const CONFIG_HEADER: &str = r#"# ===============================================
 # Piney 配置文件
 # =========================================================
 # 密码重置说明:
-# 如果忘记密码，请将下面的
-# password: null
-#
-# 改为
-# password: 你的新密码
-#
-# 请注意，英文冒号，且后面有个空格
-# 请注意，不要删除username、password_hash和jwt_secret的内容，删除了就废了
-# 重启程序后，密码将自动更新，该明文也会被自动删除
+# 如果需要修改密码，直接修改 password 字段即可
+# 重启程序后立即生效
 # =========================================================
 "#;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub username: String,
-    pub password_hash: String,
-    pub password: Option<String>, // 明文密码，用于重置，启动后会自动删除
-    // Secret for JWT, generated on first run if not present?
-    // For simplicity, we can generate one and store it, or just generate on startup (invalidating tokens on restart).
-    // Let's store it to keep tokens valid across restarts.
-    pub jwt_secret: String,
+    pub password: String, // 明文密码
+                          // jwt_secret 已移除，改为独立管理
 }
 
 #[derive(Clone)]
 pub struct ConfigState {
-    // RwLock to allow runtime updates (reset password)
     config: Arc<RwLock<Option<AppConfig>>>,
+    jwt_secret: String, // 在内存中保存
     file_path: String,
 }
 
 impl ConfigState {
     pub fn new(file_path: &str) -> Self {
+        // 1. 获取/生成 JWT Secret
+        let jwt_secret = crate::utils::secret::get_jwt_secret();
+
+        // 2. 尝试读取配置文件
         let mut config: Option<AppConfig> = if Path::new(file_path).exists() {
             let content = fs::read_to_string(file_path).ok();
-            content.and_then(|c| serde_yaml::from_str(&c).ok())
+            if let Some(c) = content.as_ref() {
+                // 定义检查结构体，宽容解析
+                #[derive(Deserialize)]
+                struct ConfigCheck {
+                    username: String,
+                    password: Option<String>,
+                    password_hash: Option<String>, // 旧版字段
+                    jwt_secret: Option<String>,    // 待移除字段
+                }
+
+                if let Ok(check) = serde_yaml::from_str::<ConfigCheck>(c) {
+                    let mut needs_save = false;
+                    let final_password: String;
+
+                    // 检查 A: 是否包含 password_hash (需要重置密码)
+                    if check.password_hash.is_some() {
+                        info!("检测到旧版配置(password_hash)，执行重置...");
+                        final_password = "12345678".to_string();
+                        needs_save = true;
+
+                        // 强制让所有旧 Token 失效：删除 .jwt_secret 文件
+                        // 这样下次获取 secret 时会生成新的，从而使旧 Token 签名无效
+                        let secret_path = crate::utils::paths::get_data_path(".jwt_secret");
+                        if secret_path.exists() {
+                            let _ = fs::remove_file(secret_path);
+                            info!("已移除旧密钥，强制以前的登录失效");
+                        }
+                    }
+                    // 检查 B: 获取现有密码
+                    else if let Some(pwd) = check.password {
+                        final_password = pwd;
+                    } else {
+                        // 既没 hash 也没 password，异常
+                        // 我们将重置为 12345678 以修复它
+                        final_password = "12345678".to_string();
+                        needs_save = true;
+                    }
+
+                    // 检查 C: 是否包含 jwt_secret (需要清理)
+                    if check.jwt_secret.is_some() {
+                        info!("检测到配置文件包含 jwt_secret，正在移除...");
+                        needs_save = true;
+                    }
+
+                    // 构造新配置
+                    let new_config = AppConfig {
+                        username: check.username,
+                        password: final_password.clone(),
+                    };
+
+                    // 如果需要，执行保存 (清理字段)
+                    if needs_save {
+                        if let Ok(yaml) = serde_yaml::to_string(&new_config) {
+                            let content_to_write = format!("{}\n{}", CONFIG_HEADER, yaml);
+                            if let Err(e) = fs::write(file_path, content_to_write) {
+                                eprintln!("警告: 无法保存迁移后的配置: {}", e);
+                            } else {
+                                info!("配置已迁移并清理 (已移除 jwt_secret/password_hash)");
+                            }
+                        }
+                    }
+
+                    Some(new_config)
+                } else {
+                    tracing::warn!("无法解析配置文件，将尝试重新初始化");
+                    None
+                }
+            } else {
+                None
+            }
         } else {
             None
         };
 
-        // 检查是否需要迁移（明文密码转哈希）
-        if let Some(ref mut c) = config {
-            if let Some(plain_password) = c.password.take() {
-                info!("检测到明文密码，正在执行安全迁移...");
+        // 3. 如果未获取到配置 (首次运行或解析失败)，尝试从环境变量初始化
+        if config.is_none() {
+            let env_username = std::env::var("ADMIN_USERNAME").ok();
+            let env_password = std::env::var("ADMIN_PASSWORD").ok();
 
-                let salt = SaltString::generate(&mut OsRng);
-                let argon2 = Argon2::default();
-                if let Ok(hash) = argon2.hash_password(plain_password.as_bytes(), &salt) {
-                    c.password_hash = hash.to_string();
+            if let (Some(u), Some(p)) = (env_username, env_password) {
+                info!("检测到环境变量配置，自动初始化...");
 
-                    // 旋转 JWT Secret 以强制注销所有已登录用户
-                    c.jwt_secret = thread_rng()
-                        .sample_iter(&Alphanumeric)
-                        .take(32)
-                        .map(char::from)
-                        .collect();
+                let new_config = AppConfig {
+                    username: u,
+                    password: p,
+                };
 
-                    // 立即写回文件以不仅更新内存，还清除文件中的明文
-                    if let Ok(yaml) = serde_yaml::to_string(c) {
-                        let content = format!("{}\n{}", CONFIG_HEADER, yaml);
-                        if let Err(e) = fs::write(file_path, content) {
-                            eprintln!("警告: 无法更新配置文件以清除明文密码: {}", e);
-                        } else {
-                            info!("密码重置成功，明文密码已清除");
-                        }
-                    }
-                }
+                let yaml = serde_yaml::to_string(&new_config).unwrap_or_default();
+                let content = format!("{}\n{}", CONFIG_HEADER, yaml);
+                let _ = fs::write(file_path, content);
+
+                config = Some(new_config);
             }
         }
 
         Self {
             config: Arc::new(RwLock::new(config)),
+            jwt_secret,
             file_path: file_path.to_string(),
         }
     }
@@ -94,17 +142,17 @@ impl ConfigState {
         self.config.read().unwrap().clone()
     }
 
+    // 获取 JWT Secret
+    pub fn get_jwt_secret(&self) -> String {
+        self.jwt_secret.clone()
+    }
+
     pub fn is_initialized(&self) -> bool {
         self.config.read().unwrap().is_some()
     }
 
-    pub fn save(&self, username: String, password_hash: String, jwt_secret: String) -> Result<()> {
-        let new_config = AppConfig {
-            username,
-            password_hash,
-            password: None,
-            jwt_secret,
-        };
+    pub fn save(&self, username: String, password: String) -> Result<()> {
+        let new_config = AppConfig { username, password };
 
         let yaml = serde_yaml::to_string(&new_config)?;
         let content = format!("{}\n{}", CONFIG_HEADER, yaml);

@@ -93,7 +93,30 @@ export async function apiCall<T = unknown>(
             body: body ? JSON.stringify(body) : undefined
         });
 
-        const data = await response.json();
+        // 优先处理 401，不需要解析 body
+        if (response.status === 401) {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.removeItem('auth_token');
+            }
+            if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+                window.location.href = '/login';
+            }
+            return {
+                success: false,
+                error: '未授权，请登录'
+            };
+        }
+
+        // 尝试解析 JSON，如果为空或格式错误则忽略
+        let data: any = {};
+        try {
+            const text = await response.text();
+            if (text) {
+                data = JSON.parse(text);
+            }
+        } catch (e) {
+            // 忽略解析错误
+        }
 
         if (!response.ok) {
             return {
