@@ -46,15 +46,9 @@ pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> 
         move || {
             if let Ok(entries) = fs::read_dir(temp_dir) {
                 for entry in entries.flatten() {
-                    if let Ok(metadata) = entry.metadata() {
-                        if let Ok(modified) = metadata.modified() {
-                            if let Ok(elapsed) = modified.elapsed() {
-                                if elapsed.as_secs() > 3600 {
-                                    let _ = fs::remove_file(entry.path());
-                                }
-                            }
-                        }
-                    }
+                    // 激进清理：每次导出前，清空 temp 目录下的所有文件
+                    // 这样目录里永远只会有当前这一个备份文件
+                    let _ = fs::remove_file(entry.path());
                 }
             }
         }

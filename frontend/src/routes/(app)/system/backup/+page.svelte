@@ -106,7 +106,7 @@
             toast.dismiss(loadingToast);
             
             if (res.ok) {
-                toast.success("数据恢复成功！建议刷新页面或重启服务以确保数据生效");
+                toast.success("数据恢复成功！请重启服务以确保数据生效");
                 selectedFile = null;
                 if (fileInput) fileInput.value = "";
             } else {
