@@ -1,8 +1,9 @@
+
 <script lang="ts">
-    import { onMount, onDestroy, tick } from "svelte";
+    import { onMount, onDestroy, tick, mount, unmount } from "svelte";
     import { page } from "$app/stores";
     import { 
-        Loader2, ArrowLeft, Settings, 
+        Loader2, ArrowLeft, Settings, Eye,
         ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight 
     } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
@@ -16,10 +17,10 @@
     import { cn } from "$lib/utils";
     import { breadcrumbs } from "$lib/stores/breadcrumb";
     import { Checkbox } from "$lib/components/ui/checkbox";
-    import HTMLRender from "$lib/components/render/HTMLRender.svelte";
-    import { processContentWithScripts, type RegexScript } from "$lib/utils/regexProcessor";
-    import { isFrontend } from "$lib/utils/renderUtils";
-    import { smartFilterTags, detectTags, sortTags, processTagNewlines } from "$lib/utils/tagFilter";
+    import Iframe from "$lib/components/render/Iframe.svelte"; // New Iframe Component
+    import { type RegexScript, processContentWithScripts } from "$lib/utils/regexProcessor";
+    import { processTextWithPipelineSimple, processTextWithPipeline, createIframeContent, isHtmlCodeBlock } from "$lib/utils/renderUtils"; // New Pipeline
+    import { detectTags, sortTags } from "$lib/utils/tagFilter";
     import { API_BASE } from "$lib/api";
 
     const historyId = $page.url.searchParams.get("history_id");
@@ -172,9 +173,25 @@
                 floors = data.floors;
                 jumpPage = currentPage;
 
-                // Detect tags in loaded content (Using Global Backend Detection)
+                // Backend Detected Tags
                 if (!isTxtFormat && (data as any).detected_tags) {
                      (data as any).detected_tags.forEach((t: string) => availableTags.add(t));
+                }
+
+                // Frontend Detected Tags (Using new pipeline dry-run if needed, but simple scan is ok)
+                // We just want to find tags that might be created by regex
+                if (!isTxtFormat && floors.length > 0) {
+                     // Note: We don't fully run the render pipeline here, just regex to find tags
+                     // This mimics the 'loadPage' logic from before but simplified
+                     floors.forEach(f => {
+                         // Dry run regex for tag detection
+                         const result = processTextWithPipeline(f.content, { 
+                             chatRegex, cardRegex, 
+                             hiddenTags: [], newlineTags: [] // No filtering
+                         });
+                         const tags = detectTags(result.html); // Use .html from result
+                         tags.forEach(t => availableTags.add(t));
+                     });
                      availableTags = new Set(availableTags);
                 }
             } catch (e) {
@@ -236,6 +253,19 @@
                 // Also scan tags for the preloaded page to keep the menu updated (Global)
                 if (!isTxtFormat && (data as any).detected_tags) {
                      (data as any).detected_tags.forEach((t: string) => availableTags.add(t));
+                }
+                
+                // Frontend Scan for Preload
+                if (!isTxtFormat && data.floors.length > 0) {
+                     data.floors.forEach((f: any) => {
+                         // Dry run regex for tag detection
+                         const temp = processTextWithPipeline(f.content, { 
+                             chatRegex, cardRegex, 
+                             hiddenTags: [], newlineTags: [] // No filtering
+                         });
+                         const tags = detectTags(temp); // Simple regex scan on result
+                         tags.forEach((t: string) => availableTags.add(t));
+                     });
                      availableTags = new Set(availableTags);
                 }
             }
@@ -248,9 +278,9 @@
         const patternString = `<${tag}`;
         const check = (scripts: RegexScript[]) => {
             return scripts.some(s => {
-                if (!s.regex) return false;
+                if (!s.findRegex) return false;
                 // Check if the regex pattern contains the tag (case insensitive)
-                return s.regex.toLowerCase().includes(patternString.toLowerCase());
+                return s.findRegex.toLowerCase().includes(patternString.toLowerCase());
             });
         };
         return check(chatRegex) || check(cardRegex);
@@ -312,8 +342,6 @@
         } catch {}
     }
     
-
-    
     // Debounced save for brightness
     function handleBrightnessChange(val: number[]) {
         textBrightness = val[0];
@@ -322,9 +350,7 @@
     
     function triggerSave() {
         clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => {
-            saveProgress();
-        }, 1000);
+        saveTimeout = setTimeout(() => { saveProgress(); }, 1000);
     }
     
     function toggleTagFilter(tag: string, checked: boolean) {
@@ -349,148 +375,94 @@
         }
         triggerSave();
     }
-    
-    function processText(text: string): string {
-        // 1. Normalize line endings
-        let res = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-        // IF TXT FORMAT: Skip all regex and formatting
-        if (isTxtFormat) {
-            // Escape HTML chars to prevent XSS only
-            res = res
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-            // Preserve whitespace with simple CSS in the rendering part, but here just return text
-            // We return plain text, the container will allow pre-wrap
-            return res;
+    // --- DEBUG RAW VIEW ---
+    let rawViewFloors = $state(new Set<number>());
+
+    function toggleRawView(floor: number) {
+        const newSet = new Set(rawViewFloors);
+        if (newSet.has(floor)) {
+            newSet.delete(floor);
+        } else {
+            newSet.add(floor);
         }
-
-        // 2. Apply User Regex Scripts (Chat -> Card) - MOVED UP
-        res = processContentWithScripts(res, chatRegex);
-        res = processContentWithScripts(res, cardRegex);
-
-        // 3. Smart Tag Filtering (After Regex)
-        // Handles unclosed tags: <thought>... (deletes to next tag), </thought>... (deletes from start)
-        res = smartFilterTags(res, filterTags);
-        
-        // 4. Process Tag Newlines
-        res = processTagNewlines(res, newlineTags);
-        
-        // 4. Collapse excessive empty lines (3+ newlines -> 2)
-        res = res.replace(/(\n\s*){3,}/g, '\n\n');
-        
-        // 5. Process triple-backtick code blocks BEFORE DOM parsing
-        // Match ```language\ncontent\n``` or just ```content```
-        res = res.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, content) => {
-            // Check if content is HTML/frontend code
-            if (isFrontend(content)) {
-                // Render HTML directly (unwrap from code block)
-                return content;
-            }
-            // Otherwise, create a proper code block
-            const langClass = lang ? ` class="language-${lang}"` : '';
-            const escapedContent = content
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-            return `<pre><code${langClass}>${escapedContent}</code></pre>`;
-        });
-        
-        // 5. Check if result is frontend code - if so, skip sanitization to preserve scripts
-        // The iframe sandbox will safely contain any scripts
-        // Frontend HTML handles its own formatting, don't modify it
-        if (isFrontend(res)) {
-            return res;
-        }
-        
-        // 6. For non-frontend content, use DOM-based sanitizer
-        const container = document.createElement('div');
-        container.innerHTML = res;
-        
-        // 7. Remove dangerous elements (only for non-frontend content)
-        container.querySelectorAll('script, iframe, object, embed, form').forEach(el => el.remove());
-        container.querySelectorAll('*').forEach(el => {
-            // Remove event handlers and javascript: links
-            Array.from(el.attributes).forEach(attr => {
-                if (attr.name.startsWith('on') || 
-                    (attr.name === 'href' && attr.value.toLowerCase().startsWith('javascript:'))) {
-                    el.removeAttribute(attr.name);
-                }
-            });
-        });
-        
-        // 8. Process text nodes for Markdown-like formatting
-        processTextNodes(container);
-        
-        // 9. Get HTML and collapse excessive <br> tags
-        let html = container.innerHTML;
-        // Replace 2+ consecutive <br> (with optional whitespace) to single <br>
-        html = html.replace(/(<br\s*\/?>\s*){2,}/gi, '<br>');
-        
-        return html;
+        rawViewFloors = newSet;
     }
+
+    function getDebugRawText(content: string) {
+        // 1. Normalize
+        let res = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        // 2. Regex (Display Context)
+        res = processContentWithScripts(res, chatRegex, { isMarkdown: true });
+        res = processContentWithScripts(res, cardRegex, { isMarkdown: true });
+        return res;
+    }
+
+    // --- NEW PIPELINE RENDERING ---
     
-    /**
-     * Process text nodes for Markdown formatting (SillyReader style)
-     */
-    function processTextNodes(element: HTMLElement): void {
-        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
-        const textNodes: Text[] = [];
-        while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
-        
-        textNodes.forEach(node => {
-            const parent = node.parentNode as HTMLElement;
-            if (!parent) return;
+    // Action to mount Iframe components in place of code blocks
+    function mountCodeBlockIframes(node: HTMLElement, content: string) {
+        // Track mounted components to clean up
+        const mountedComponents: { unmount: () => void }[] = [];
+
+        function update() {
+            // 查找所有标记为需要 iframe 渲染的代码块
+            const iframeBlocks = node.querySelectorAll('pre.piney-iframe-code');
             
-            // Skip processing inside pre, code, script, style
-            if (parent.closest('pre, code, script, style')) return;
-            
-            let text = node.textContent || '';
-            let hasChanges = false;
-            
-            // Inline code: `code` (but NOT triple backticks - those are handled earlier)
-            // Use negative lookbehind/ahead to avoid matching ``` patterns
-            if (text.includes('`') && !text.includes('```')) {
-                text = text.replace(/(?<!`)`([^`]+)`(?!`)/g, '<code>$1</code>');
-                hasChanges = true;
+            iframeBlocks.forEach((pre) => {
+                const codeBlock = pre.querySelector('code');
+                if (!codeBlock) return;
+
+                // 获取原始 HTML 内容（需要解码 HTML 实体）
+                let rawHtml = codeBlock.textContent || "";
+                
+                // 创建容器
+                const container = document.createElement('div');
+                container.className = "th-iframe-wrapper w-full my-4";
+                
+                // 替换 <pre> 为容器
+                pre.replaceWith(container);
+                
+                // 挂载 Iframe 组件
+                const component = mount(Iframe, {
+                    target: container,
+                    props: { content: rawHtml }
+                });
+                
+                mountedComponents.push(component);
+            });
+        }
+
+        update();
+
+        return {
+            update(newContent: string) {
+                // If content changes, everything re-renders in the keyed block or @html usually
+                // But if we use just @html and this action, we might need to re-run
+                // However, usually the DOM is trashed and rebuilt by Svelte's @html
+                // So this action destroys and re-inits?
+                // Let's assume 'destroy' is called, then 'mount' again.
+            },
+            destroy() {
+                mountedComponents.forEach(c => unmount(c));
             }
-            
-            // Strikethrough: ~~text~~
-            if (text.includes('~~')) {
-                text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
-                hasChanges = true;
-            }
-            
-            // Bold + Italic: ***text***
-            if (text.includes('*')) {
-                text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-                // Bold: **text**
-                text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-                // Italic: *text* (negative lookbehind for < to avoid matching HTML)
-                text = text.replace(/(?<![<\\])\*([^*\n]+)\*(?![>])/g, '<em>$1</em>');
-                hasChanges = true;
-            }
-            
-            // Quotes: "text" or 「text」 or 『text』
-            if (text.includes('"') || text.includes('「') || text.includes('『')) {
-                text = text.replace(/"([^"]+)"/g, '<q>$1</q>');
-                text = text.replace(/「([^」]+)」/g, '<q>$1</q>');
-                text = text.replace(/『([^』]+)』/g, '<q>$1</q>');
-                hasChanges = true;
-            }
-            
-            // Newlines -> <br>
-            if (text.includes('\n')) {
-                text = text.replace(/\n/g, '<br>');
-                hasChanges = true;
-            }
-            
-            if (hasChanges) {
-                const span = document.createElement('span');
-                span.innerHTML = text;
-                parent.replaceChild(span, node);
-            }
+        };
+    }
+
+    // Helper to get processed HTML
+    function getProcessedHtml(content: string): string {
+        if (isTxtFormat) {
+            // Escape HTML for safety in TXT mode
+             return content
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+        return processTextWithPipelineSimple(content, {
+            chatRegex,
+            cardRegex,
+            hiddenTags: filterTags,
+            newlineTags: newlineTags
         });
     }
 
@@ -500,26 +472,13 @@
 
         // Keyboard Navigation
         window.addEventListener('keydown', handleKeydown);
-        // Iframe Navigation Message listener
-        window.addEventListener('message', handleMessage);
     });
 
     onDestroy(() => {
         if (typeof window !== 'undefined') {
             window.removeEventListener('keydown', handleKeydown);
-            window.removeEventListener('message', handleMessage);
         }
     });
-
-    function handleMessage(event: MessageEvent) {
-        if (event.data?.type === 'TH_NAVIGATE') {
-            if (event.data.key === 'ArrowLeft' || event.data.swipe === 'right') {
-                if (currentPage > 1) handlePageChange(currentPage - 1);
-            } else if (event.data.key === 'ArrowRight' || event.data.swipe === 'left') {
-                if (currentPage < totalPages) handlePageChange(currentPage + 1);
-            }
-        }
-    }
 
     function handleKeydown(e: KeyboardEvent) {
         if (e.key === 'ArrowLeft') {
@@ -529,7 +488,6 @@
         }
     }
 
-    // Touch Navigation (SillyReader Style)
     let touchStartX = 0;
     let touchStartY = 0;
     let touchStartTime = 0;
@@ -547,20 +505,58 @@
         const diffY = touchEndY - touchStartY;
         const duration = Date.now() - touchStartTime;
 
-        // SillyReader Logic: < 300ms, > 50px distance, Horizontal > Vertical * 1.5
         if (duration < 300 && Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
             if (diffX > 0) {
-                // Swipe Right -> Prev Page
                 if (currentPage > 1) handlePageChange(currentPage - 1);
             } else {
-                // Swipe Left -> Next Page
                 if (currentPage < totalPages) handlePageChange(currentPage + 1);
             }
         }
     }
 </script>
 
-<div class="flex flex-col h-screen bg-background" style="filter: brightness({textBrightness}%);">
+<style>
+    /* Styles ported from HTMLRender and renderUtils for MAIN DOM rendering */
+    :global(.chat-content) {
+        line-height: 1.8;
+    }
+    :global(.chat-content p) {
+        margin-bottom: 1.5em;
+    }
+    :global(.chat-content p:last-child) {
+        margin-bottom: 0;
+    }
+    :global(.chat-content code) {
+        background: rgba(128,128,128,0.2); 
+        padding: 2px 6px; 
+        border-radius: 4px; 
+        font-family: ui-monospace, monospace;
+        font-size: 0.9em;
+    }
+    :global(.chat-content pre) {
+        background: #f5f5f5;
+        border: 1px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 1rem 0;
+        overflow-x: auto;
+    }
+    :global(.dark .chat-content pre) {
+        background: #1e1e1e;
+        border-color: #333;
+    }
+    :global(.chat-content q) { color: #2e7d32; }
+    :global(.dark .chat-content q) { color: #99cc99; }
+    :global(.chat-content q::before) { content: '"'; }
+    :global(.chat-content q::after) { content: '"'; }
+    :global(.chat-content em) { color: #b8860b; font-style: italic; }
+    :global(.dark .chat-content em) { color: #ffcc00; }
+    :global(.chat-content strong) { color: #c62828; font-weight: bold; }
+    :global(.dark .chat-content strong) { color: #ff9966; }
+    :global(.chat-content del) { color: #888888; text-decoration: line-through; }
+</style>
+
+<div class="flex flex-col h-screen bg-background transition-all" style="filter: brightness({textBrightness}%);">
     <!-- Header -->
     <header class="flex items-center gap-4 border-b px-6 py-3 bg-card/80 backdrop-blur-sm sticky top-0 z-10 justify-between">
         <div class="flex items-center gap-2 md:gap-4 flex-1 min-w-0 mr-2">
@@ -607,7 +603,7 @@
                             
                             <div class="grid gap-2 border-b pb-4">
                                 <Label>标签分行</Label>
-                                <p class="text-xs text-muted-foreground">选择的标签内容将会很好的分行显示，建议content和status必选（若有）</p>
+                                <p class="text-xs text-muted-foreground">选择的标签内容将会很好的分行显示</p>
                                 <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
                                     {#each sortTags(availableTags).filter(t => !isTagMaskedByRegex(t)) as tag}
                                         <div class="flex items-center space-x-2">
@@ -623,7 +619,7 @@
                             </div>
                         {/if}
 
-                        <div class="grid gap-2"><Label>文字亮度 (深色模式)</Label><div class="flex items-center gap-4"><Slider value={[textBrightness]} max={100} step={5} onValueChange={handleBrightnessChange} class="flex-1" type="multiple" /><span class="w-8 text-sm text-right">{textBrightness}%</span></div></div>
+                        <div class="grid gap-2"><Label>文字亮度</Label><div class="flex items-center gap-4"><Slider value={[textBrightness]} max={100} step={5} onValueChange={handleBrightnessChange} class="flex-1" type="multiple" /><span class="w-8 text-sm text-right">{textBrightness}%</span></div></div>
                     </div>
                 </Popover.Content>
              </Popover.Root>
@@ -645,83 +641,42 @@
             {#if isLoading}
                 <div class="flex h-64 items-center justify-center"><Loader2 class="h-8 w-8 animate-spin text-primary" /></div>
             {:else}
-                {#each floors as floor, i}
+                {#each floors as floor, i (floor.floor)}
                     <div class={cn("rounded-lg border p-3 md:p-6 shadow-sm", i % 2 === 0 ? "bg-card" : "bg-card/50")}>
                         <div class="flex items-center justify-between mb-4 pb-2 border-b border-border/50">
                             <span class="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{floor.floor}</span>
-                            <span class="font-semibold opacity-90">{floor.name}</span>
+                            <div class="flex items-center gap-2">
+                                <span class="font-semibold opacity-90">{floor.name}</span>
+                                <Button variant="ghost" size="icon" class="h-6 w-6 ml-2" onclick={() => toggleRawView(floor.floor)} title="查看渲染前内容 (Regex Only)">
+                                    <Eye class="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                            </div>
                         </div>
 
-                        <div class="leading-relaxed text-foreground/90 w-full min-h-[100px]">
-                            <!-- SillyReader-style: direct HTML rendering with simple styling -->
-                            {#if isTxtFormat}
-                                <!-- Optimization: Render TXT directly without iframe for performance -->
-                                <div class="p-2 md:p-4 whitespace-pre-wrap font-sans text-base leading-relaxed break-words text-foreground">{@html processText(floor.content)}</div>
-                            {:else}
-                                <HTMLRender content={`
-                                    <style>
-                                        html, body { 
-                                            background: transparent !important;
-                                            margin: 0;
-                                            padding: 0;
-                                            line-height: 1.8; 
-                                            color: inherit; /* Inherit color from parent keys or set by class */
-                                        }
-                                        /* Default Light Mode Text */
-                                        html:not(.dark) body { color: #333; }
+                        {#if rawViewFloors.has(floor.floor)}
+                            <div class="mb-4">
+                                <div class="text-[10px] uppercase font-bold text-muted-foreground/50 mb-1">正则处理后 (After Regex)</div>
+                                <textarea 
+                                    class="w-full h-48 p-3 text-xs bg-muted/50 border rounded-md font-mono resize-y focus:outline-none focus:ring-1 focus:ring-ring" 
+                                    readonly
+                                >{getDebugRawText(floor.content)}</textarea>
+                            </div>
+                        {/if}
 
-                                        /* Dark Mode Text */
-                                        html.dark body { color: #e0e0e0; }
-                                        
-                                        /* Inline Code */
-                                        code { 
-                                            background: rgba(128,128,128,0.2); 
-                                            padding: 2px 6px; 
-                                            border-radius: 4px; 
-                                            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-                                            font-size: 0.9em;
-                                        }
-                                        
-                                        /* Block Code (Pre) */
-                                        pre {
-                                            background: #f5f5f5;
-                                            border: 1px solid #e5e5e5;
-                                            border-radius: 8px;
-                                            padding: 1rem;
-                                            margin: 1rem 0;
-                                            overflow-x: auto;
-                                            font-size: 0.9em;
-                                            line-height: 1.5;
-                                        }
-                                        html.dark pre {
-                                            background: #1e1e1e;
-                                            border-color: #333;
-                                        }
-                                        @media (prefers-color-scheme: dark) {
-                                            /* pre { background: #1e1e1e; border-color: #333; } Disabled */
-                                        }
-                                        
-                                        /* Code inside Pre resets inline styles */
-                                        pre code {
-                                            background: transparent;
-                                            padding: 0;
-                                            border-radius: 0;
-                                            color: inherit;
-                                            font-size: inherit;
-                                            white-space: pre;
-                                        }
-                                        q { color: #2e7d32; }
-                                        html.dark q { color: #99cc99; }
-                                        q::before { content: '"'; }
-                                        q::after { content: '"'; }
-                                        em { color: #b8860b; font-style: italic; }
-                                        html.dark em { color: #ffcc00; }
-                                        strong { color: #c62828; font-weight: bold; }
-                                        html.dark strong { color: #ff9966; }
-                                        del { color: #888888; text-decoration: line-through; }
-                                    </style>
-                                    <div style="padding: 0.5rem;">${processText(floor.content)}</div>
-                                `} />
+                        <div class="leading-relaxed text-foreground/90 w-full min-h-[50px] chat-content">
+                            <!-- New Rendering Pipeline -->
+                            {#if isTxtFormat}
+                                <div class="p-2 md:p-4 whitespace-pre-wrap font-sans text-base leading-relaxed break-words text-foreground">
+                                    {@html getProcessedHtml(floor.content)}
+                                </div>
+                            {:else}
+                                <!-- Use action to mount iframes after rendering HTML -->
+                                <div 
+                                    use:mountCodeBlockIframes={floor.content}
+                                    class="break-words"
+                                >
+                                    {@html getProcessedHtml(floor.content)}
+                                </div>
                             {/if}
                         </div>
                     </div>

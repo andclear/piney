@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { createSrcContent, isFrontend, replaceVhInContent } from '$lib/utils/renderUtils';
+    import { createIframeContent, isFrontend } from '$lib/utils/renderUtils';
 
     // Simple ID generator since strict UUID isn't required for iframe IDs
     function generateId() {
@@ -60,11 +60,11 @@
         isLoaded = true;
         // Trigger an immediate update just in case content changed while loading
         if (iframeRef && iframeRef.contentWindow) {
-            const processedContent = replaceVhInContent(content);
+            // Hot Update: Just content
             try {
                 iframeRef.contentWindow.postMessage({ 
                     type: 'TH_UPDATE_CONTENT', 
-                    content: processedContent,
+                    content: content,
                     isDark: isDark 
                 }, '*');
             } catch (e) {
@@ -82,26 +82,22 @@
 
         if (loaded && iframeRef && iframeRef.contentWindow) {
              // Hot Update: Post message update without reloading iframe
-             const processedContent = replaceVhInContent(currentContent);
              iframeRef.contentWindow.postMessage({ 
                  type: 'TH_UPDATE_CONTENT', 
-                 content: processedContent,
+                 content: currentContent,
                  isDark: currentDark 
              }, '*');
         } else {
              // Initial Load logic (or if not loaded yet)
-             // Only update srcifiedContent if it's materially different effectively (though Svelte handles derived)
-             // or if we haven't loaded yet.
-             
-             // To prevent infinite reload loops if srcdoc updates reload the iframe -> onload -> effect:
-             // We generally only set srcifiedContent ONCE or when we specifically want to reload.
-             // If we rely on srcdoc for the first paint.
-             
              if (!srcifiedContent) {
-                 srcifiedContent = createSrcContent(currentContent, useBlobUrl, currentDark);
+                 srcifiedContent = createIframeContent(currentContent, useBlobUrl);
+                 // Note: createIframeContent doesn't take isDark as arg currently in new implementation,
+                 // it handles styles internally or via postMessage later?
+                 // Actually looking at new createIframeContent, it doesn't take isDark unless I add it.
+                 // But wait, the Style injection is basic. 
+                 // We might need to handle Dark Mode via postMessage inside the iframe script?
+                 // The Iframe.svelte logic relies on postMessage for updates.
              }
-             // If content changes significantly while !isLoaded, we might want to update srcifiedContent?
-             // But simpler to just let handleLoad sync it.
         }
     });
     
@@ -109,7 +105,7 @@
     // But for now, we stick to srcdoc usually.
 
     function handleMessage(event: MessageEvent) {
-        if (event.data?.type === 'TH_ADJUST_IFRAME_HEIGHT' && event.data?.iframe_name === iframeId) {
+        if (event.data?.type === 'TH_ADJUST_IFRAME_HEIGHT' && event.data?.name === iframeId) {
             if (iframeRef) {
                 iframeRef.style.height = `${event.data.height}px`;
             }

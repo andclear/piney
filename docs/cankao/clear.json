@@ -1,0 +1,52 @@
+{
+    "entries": {
+        "0": {
+            "uid": 0,
+            "key": [],
+            "keysecondary": [],
+            "comment": "（请修改）条目名称",
+            "content": "",
+            "constant": false,
+            "vectorized": false,
+            "selective": true,
+            "selectiveLogic": 0,
+            "addMemo": false,
+            "order": 100,
+            "position": 0,
+            "disable": false,
+            "ignoreBudget": false,
+            "excludeRecursion": false,
+            "preventRecursion": false,
+            "matchPersonaDescription": false,
+            "matchCharacterDescription": false,
+            "matchCharacterPersonality": false,
+            "matchCharacterDepthPrompt": false,
+            "matchScenario": false,
+            "matchCreatorNotes": false,
+            "delayUntilRecursion": 0,
+            "probability": 100,
+            "useProbability": true,
+            "depth": 4,
+            "outletName": "",
+            "group": "",
+            "groupOverride": false,
+            "groupWeight": 100,
+            "scanDepth": null,
+            "caseSensitive": null,
+            "matchWholeWords": null,
+            "useGroupScoring": null,
+            "automationId": "",
+            "role": null,
+            "sticky": null,
+            "cooldown": null,
+            "delay": null,
+            "triggers": [],
+            "displayIndex": 0,
+            "characterFilter": {
+                "isExclude": false,
+                "names": [],
+                "tags": []
+            }
+        }
+    }
+}

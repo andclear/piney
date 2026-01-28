@@ -555,23 +555,11 @@ pub async fn get_history_content(
                     // 2. If stack contains "content" -> Inside Content -> Add as "content_Name"
                     // 3. Else -> Nested -> Ignore
 
-                    let inside_content = stack.contains(&"content".to_string());
-                    // let is_content_tag = tag_name == "content";
-
-                    if stack.is_empty() {
-                        tags_set.insert(tag_name_raw.to_string());
-                    } else if inside_content {
-                        // Only add if it's NOT just <content> inside <content> (unless distinct?)
-                        // User said: "<content>_<aa>"
-                        tags_set.insert(format!("content_{}", tag_name_raw));
-                    }
-
-                    // Push to stack to track nesting
-                    // Exception: self-closing tags? Regex doesn't distinguish well, but XML-style <tag/> usually not typical in these logs.
-                    // If full_tag ends with "/>" -> don't push?
                     if !full_tag.trim().ends_with("/>") {
                         stack.push(tag_name);
                     }
+
+                    tags_set.insert(tag_name_raw.to_string());
                 }
             }
         }

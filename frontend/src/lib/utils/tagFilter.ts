@@ -1,15 +1,3 @@
-
-/**
- * Smart Tag Filtering Logic
- * Ported from SillyReader (sillyreaderfixpro.html)
- */
-
-
-/**
- * Smart Tag Filtering Logic
- * Ported from SillyReader (sillyreaderfixpro.html)
- */
-
 export function filterTagContent(text: string, tag: string): string {
     const tagLower = tag.toLowerCase();
 
@@ -71,21 +59,11 @@ export function filterTagContent(text: string, tag: string): string {
         }
     }
 
-    // Handle remaining unclosed open tags
-    // "Delete from <tag> to next tag start"
     for (const openTag of openStack) {
         let nextTagPos = text.length; // Default to end of string
 
         for (const pos of allTagStartPositions) {
             if (pos > openTag.index) {
-                // IMPORTANT: The next tag MUST NOT be a nested instance of the SAME tag we are currently filtering.
-                // If we have <thought> A <thought> B using strict filtering,
-                // The first <thought> should probably eat until the second <thought>?
-                // Or shoud it eat until ANY tag?
-                // SillyReader Logic: It eats until the next tag that is NOT itself (presumably to support nesting or simple fail-safe)
-                // But if we are filtering "thought", and we see another <thought>, 
-                // typically we want to hide everything.
-                // Let's stick to SillyReader logic: Check if pos is in our known start list for THIS tag type.
                 if (!currentTagOpenPositions.has(pos)) {
                     nextTagPos = pos;
                     break;
@@ -186,44 +164,146 @@ export function sortTags(tags: string[] | Set<string>): string[] {
 }
 
 /**
+ * Locate content ranges for a specific tag using robust parsing (same as filterTagContent)
+ */
+function locateTagContentRanges(text: string, tag: string): { start: number, end: number }[] {
+    const tagLower = tag.toLowerCase();
+    const escapedTag = tagLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const openTagRegex = new RegExp(`<(${escapedTag})(?:\\s[^>]*)?>`, 'gi');
+    const closeTagRegex = new RegExp(`</${escapedTag}>`, 'gi');
+
+    const openTags: { index: number, end: number, type: 'open' }[] = [];
+    const closeTags: { index: number, end: number, type: 'close' }[] = [];
+
+    for (const match of text.matchAll(openTagRegex)) {
+        openTags.push({ index: match.index!, end: match.index! + match[0].length, type: 'open' });
+    }
+    for (const match of text.matchAll(closeTagRegex)) {
+        closeTags.push({ index: match.index!, end: match.index! + match[0].length, type: 'close' });
+    }
+
+    if (openTags.length === 0 && closeTags.length === 0) return [];
+
+    const anyTagStartRegex = /<[\p{L}0-9_\-\.]+(?:\s[^>]*)?>/gu;
+    const allTagStartPositions: number[] = [];
+    for (const match of text.matchAll(anyTagStartRegex)) {
+        allTagStartPositions.push(match.index!);
+    }
+
+    const allTargetTags = [...openTags, ...closeTags].sort((a, b) => a.index - b.index);
+    const contentRanges: { start: number, end: number }[] = [];
+    const openStack: typeof openTags[0][] = [];
+    const currentTagOpenPositions = new Set(openTags.map(t => t.index));
+
+    for (const tagObj of allTargetTags) {
+        if (tagObj.type === 'open') {
+            openStack.push(tagObj);
+        } else {
+            if (openStack.length > 0) {
+                const openTag = openStack.pop()!;
+                if (tagObj.index > openTag.end) {
+                    contentRanges.push({ start: openTag.end, end: tagObj.index });
+                }
+            }
+        }
+    }
+
+    // Handle unclosed open tags
+    for (const openTag of openStack) {
+        let nextTagPos = text.length;
+        for (const pos of allTagStartPositions) {
+            if (pos > openTag.index && !currentTagOpenPositions.has(pos)) {
+                nextTagPos = pos;
+                break;
+            }
+        }
+        if (nextTagPos > openTag.end) {
+            contentRanges.push({ start: openTag.end, end: nextTagPos });
+        }
+    }
+
+    return contentRanges;
+}
+
+/**
  * For specified tags, convert \n to <br> within their content
  * Preserves other HTML structure.
+ * Uses Robust Parsing (Token-based) instead of simplified Regex.
  */
-export function processTagNewlines(text: string, tags: string[]): string {
-    if (!tags.length) return text;
+export function processTagNewlines(text: string, allTags: string[], enabledTags: string[]): string {
+    if (!allTags.length) return text;
 
-    // 1. Mask Code Blocks to protect them from modification
+    // 0. Sort Tags: Enabled (Preserve Newline) First
+    // This allows nested tags (e.g. Enabled Poem inside Disabled Thought) to process first and preserve their newlines,
+    // before the outer tag collapses everything else.
+    const sortedTags = [...allTags].sort((a, b) => {
+        const aEnabled = enabledTags.includes(a);
+        const bEnabled = enabledTags.includes(b);
+        if (aEnabled && !bEnabled) return -1;
+        if (!aEnabled && bEnabled) return 1;
+        return 0;
+    });
+
+    // 1. Mask Code Blocks
     const codeBlocks: string[] = [];
     let maskedText = text.replace(/```[\s\S]*?```/g, (match) => {
         codeBlocks.push(match);
         return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
     });
 
-    // 2. Process Tags on the masked text
-    for (const tag of tags) {
-        const tagLower = tag.toLowerCase();
-        // Regex to capture content of <tag>...</tag>
-        // Use [\s\S] for dot-all logic
-        const escapedTag = tagLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(<${escapedTag}(?:\\s[^>]*)?>)([\\s\\S]*?)(<\\/${escapedTag}>)`, 'gi');
+    // 2. Process Tags
+    for (const tag of sortedTags) {
+        const isEnabled = enabledTags.includes(tag);
 
-        maskedText = maskedText.replace(regex, (match, startTag, content, endTag) => {
-            // Check if content contains common HTML block tags that would break if we blindly replace \n with <br>
-            // This is a naive heuristic but effective for "mixed content"
-            // We ignore if "inside code block" but we already masked those.
-            // So we check for unmasked HTML tags.
+        // Re-locate ranges in the CURRENT state (since we modify it)
+        let ranges = locateTagContentRanges(maskedText, tag);
+
+        if (ranges.length === 0) continue;
+
+        // FILTER OVERLAPPING RANGES (Same-type nesting)
+        // Keep only Outermost ranges (which contain the inner ones).
+        // Since the setting applies to the whole tag type, processing the outer block is sufficient/correct.
+        ranges = ranges.filter(r =>
+            !ranges.some(other => other !== r && other.start <= r.start && other.end >= r.end)
+        );
+
+        // Sort ranges by start position
+        ranges.sort((a, b) => a.start - b.start);
+
+        let newText = "";
+        let cursor = 0;
+
+        for (const range of ranges) {
+            // Append unaffected pre-content
+            if (range.start > cursor) {
+                newText += maskedText.slice(cursor, range.start);
+            }
+
+            // Process content
+            const content = maskedText.slice(range.start, range.end);
+
+            // Safety check for HTML block tags
             const hasCommonHtml = /<\/?(?:div|p|table|tr|td|th|ul|ol|li|script|style|blockquote|pre|form|input)\b/i.test(content);
 
             if (hasCommonHtml) {
-                // If it looks like HTML, don't mess with newlines
-                return match;
+                newText += content; // No change
+            } else {
+                // Apply transformation
+                const processed = isEnabled
+                    ? content.replace(/\n/g, '<br>')
+                    : content.replace(/\n/g, ' ');
+                newText += processed;
             }
 
-            // Replace \n with <br> inside content
-            // We use <br> for visual line break
-            const processedContent = content.replace(/\n/g, '<br>');
-            return `${startTag}${processedContent}${endTag}`;
-        });
+            cursor = range.end;
+        }
+
+        // Append remaining text
+        if (cursor < maskedText.length) {
+            newText += maskedText.slice(cursor);
+        }
+        maskedText = newText;
     }
 
     // 3. Restore Code Blocks
@@ -233,3 +313,4 @@ export function processTagNewlines(text: string, tags: string[]): string {
 
     return res;
 }
+

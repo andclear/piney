@@ -1,0 +1,113 @@
+{
+    "name": "新建角色卡",
+    "description": "",
+    "personality": "",
+    "scenario": "",
+    "first_mes": "",
+    "mes_example": "",
+    "creatorcomment": "",
+    "avatar": "none",
+    "talkativeness": "0.5",
+    "fav": false,
+    "tags": [],
+    "spec": "chara_card_v3",
+    "spec_version": "3.0",
+    "data": {
+        "name": "新建角色卡",
+        "description": "",
+        "personality": "",
+        "scenario": "",
+        "first_mes": "",
+        "mes_example": "",
+        "creator_notes": "",
+        "system_prompt": "",
+        "post_history_instructions": "",
+        "tags": [],
+        "creator": "",
+        "character_version": "",
+        "alternate_greetings": [],
+        "extensions": {
+            "talkativeness": "0.5",
+            "fav": false,
+            "world": "",
+            "depth_prompt": {
+                "prompt": "",
+                "depth": 4,
+                "role": "system"
+            },
+            "regex_scripts": [
+                {
+                    "id": "cccc1e28-a017-4e1f-bddb-25e520b8fc16",
+                    "scriptName": "新建正则脚本",
+                    "findRegex": "{{正则表达式内容}}",
+                    "replaceString": "",
+                    "trimStrings": [],
+                    "placement": [
+                        1,
+                        2
+                    ],
+                    "disabled": false,
+                    "markdownOnly": true,
+                    "promptOnly": false,
+                    "runOnEdit": true,
+                    "substituteRegex": 0,
+                    "minDepth": null,
+                    "maxDepth": null
+                }
+            ]
+        },
+        "group_only_greetings": [],
+        "character_book": {
+            "entries": [
+                {
+                    "id": 0,
+                    "keys": [],
+                    "secondary_keys": [],
+                    "comment": "条目一",
+                    "content": "",
+                    "constant": false,
+                    "selective": true,
+                    "insertion_order": 100,
+                    "enabled": true,
+                    "position": "before_char",
+                    "use_regex": true,
+                    "extensions": {
+                        "position": 0,
+                        "exclude_recursion": false,
+                        "display_index": 0,
+                        "probability": 100,
+                        "useProbability": true,
+                        "depth": 4,
+                        "selectiveLogic": 0,
+                        "outlet_name": "",
+                        "group": "",
+                        "group_override": false,
+                        "group_weight": 100,
+                        "prevent_recursion": false,
+                        "delay_until_recursion": 0,
+                        "scan_depth": null,
+                        "match_whole_words": null,
+                        "use_group_scoring": false,
+                        "case_sensitive": null,
+                        "automation_id": "",
+                        "role": 0,
+                        "vectorized": false,
+                        "sticky": null,
+                        "cooldown": null,
+                        "delay": null,
+                        "match_persona_description": false,
+                        "match_character_description": false,
+                        "match_character_personality": false,
+                        "match_character_depth_prompt": false,
+                        "match_scenario": false,
+                        "match_creator_notes": false,
+                        "triggers": [],
+                        "ignore_budget": false
+                    }
+                }
+            ],
+            "name": "新建世界书"
+        }
+    },
+    "create_date": "2026-1-21 @09h 00m 42s 648ms"
+}

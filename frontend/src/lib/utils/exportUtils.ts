@@ -7,13 +7,25 @@ export interface ChatMessage {
     [key: string]: any;
 }
 
+const STANDARD_HTML_TAGS = new Set([
+    'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'br', 'hr',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+    'table', 'tr', 'td', 'th', 'thead', 'tbody',
+    'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'sub', 'sup',
+    'pre', 'code', 'blockquote', 'q', 'cite',
+    'details', 'summary', 'header', 'footer', 'nav', 'main', 'section', 'article', 'aside',
+    'figure', 'figcaption', 'style', 'script', 'form', 'input', 'button', 'select', 'option', 'textarea', 'label'
+]);
+
 /**
- * Scans the file content for all unique XML-like tag names used in paired tags.
+ * Scans the file content for all unique XML-like tag names.
+ * Uses loose token detection (start or end tags) to support nested tags.
  * Ignores tags inside code blocks and removes comments.
  */
 export function scanTags(fileContent: string): string[] {
     const tagCounts = new Map<string, number>();
-    const regex = /<([\p{L}0-9_\-\.]+)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gu;
+    // Loose regex to match <tag> or </tag>
+    const regex = /<\/?([\p{L}0-9_\-\.]+)(?:\s[^>]*)?>/gu;
 
     const lines = fileContent.trim().split('\n');
     for (let i = 1; i < lines.length; i++) {
@@ -29,10 +41,24 @@ export function scanTags(fileContent: string): string[] {
             content = content.replace(/`[^`]*`/g, '');
             content = content.replace(/<!--[\s\S]*?-->/g, '');
 
+            // Special handling for <think> and <thinking>:
+            // Scan them first and remove them so nested tags are NOT scanned.
+            const thinkRegex = /<(think|thinking)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
+            content = content.replace(thinkRegex, (match: string, tag: string) => {
+                // We count the think tag itself
+                tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                return ""; // Remove entire block
+            });
+
             const matches = content.matchAll(regex);
             for (const m of matches) {
-                const tag = m[1];
-                tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                const tag = m[1]; // original case
+                const tagLower = tag.toLowerCase();
+
+                // Filter out standard HTML tags
+                if (!STANDARD_HTML_TAGS.has(tagLower)) {
+                    tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                }
             }
         } catch { }
     }

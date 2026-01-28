@@ -14,14 +14,24 @@ export interface RegexScript {
     maxDepth?: number | null;
 }
 
-export function processContentWithScripts(content: string, scripts: RegexScript[]): string {
+interface ProcessOptions {
+    isMarkdown?: boolean; // Display context
+    isPrompt?: boolean;   // Generation context
+}
+
+export function processContentWithScripts(content: string, scripts: RegexScript[], options: ProcessOptions = {}): string {
     if (!content) return "";
     let processed = content;
 
     for (const script of scripts) {
         if (script.disabled) continue;
-        // Skip promptOnly scripts for display
-        if (script.promptOnly) continue;
+
+        // Filter based on context (SillyTavern Logic)
+        // 1. If script is markdownOnly (Display), run ONLY if isMarkdown is true.
+        // 2. If script is promptOnly (Generation), run ONLY if isPrompt is true.
+        // 3. If neither, run in both.
+        if (script.markdownOnly && !options.isMarkdown) continue;
+        if (script.promptOnly && !options.isPrompt) continue;
 
         try {
 
@@ -67,6 +77,12 @@ export function processContentWithScripts(content: string, scripts: RegexScript[
             // If the user typed \" (literal backslash, quote), it is \\" in JSON.
             // We typically only unescape standard C-style escapes that users typed literally.
             ;
+
+            // 自动为非空的替换内容添加 <piney_render> 标签
+            // 这样渲染管道可以识别并正确处理替换后的内容
+            if (replacement.trim()) {
+                replacement = `<piney_render>\n${replacement}\n</piney_render>`;
+            }
 
             // Note: JS replace(regex, string) automatically handles $1, $2, $&, $', $`
             // We do NOT need to implement them manually.
