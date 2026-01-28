@@ -173,26 +173,27 @@
                 floors = data.floors;
                 jumpPage = currentPage;
 
-                // Backend Detected Tags
-                if (!isTxtFormat && (data as any).detected_tags) {
-                     (data as any).detected_tags.forEach((t: string) => availableTags.add(t));
-                }
+                // Backend Detected Tags - IGNORED as per new requirement: "Only show tags from current page after regex processing"
+                // if (!isTxtFormat && (data as any).detected_tags) {
+                //      (data as any).detected_tags.forEach((t: string) => availableTags.add(t));
+                // }
 
                 // Frontend Detected Tags (Using new pipeline dry-run if needed, but simple scan is ok)
                 // We just want to find tags that might be created by regex
                 if (!isTxtFormat && floors.length > 0) {
                      // Note: We don't fully run the render pipeline here, just regex to find tags
                      // This mimics the 'loadPage' logic from before but simplified
+                     // Reset availableTags for this page view
+                     const currentViewTags = new Set<string>();
                      floors.forEach(f => {
                          // Dry run regex for tag detection
                          const result = processTextWithPipeline(f.content, { 
                              chatRegex, cardRegex, 
                              hiddenTags: [], newlineTags: [] // No filtering
                          });
-                         const tags = detectTags(result.html); // Use .html from result
-                         tags.forEach(t => availableTags.add(t));
+                         result.detectedTags.forEach(t => currentViewTags.add(t)); // Use detectedTags from pipeline result
                      });
-                     availableTags = new Set(availableTags);
+                     availableTags = currentViewTags;
                 }
             } catch (e) {
                 console.error(e);
@@ -251,23 +252,8 @@
                 };
                 
                 // Also scan tags for the preloaded page to keep the menu updated (Global)
-                if (!isTxtFormat && (data as any).detected_tags) {
-                     (data as any).detected_tags.forEach((t: string) => availableTags.add(t));
-                }
-                
-                // Frontend Scan for Preload
-                if (!isTxtFormat && data.floors.length > 0) {
-                     data.floors.forEach((f: any) => {
-                         // Dry run regex for tag detection
-                         const temp = processTextWithPipeline(f.content, { 
-                             chatRegex, cardRegex, 
-                             hiddenTags: [], newlineTags: [] // No filtering
-                         });
-                         const tags = detectTags(temp); // Simple regex scan on result
-                         tags.forEach((t: string) => availableTags.add(t));
-                     });
-                     availableTags = new Set(availableTags);
-                }
+                // Tag scanning removed from preloadPage to ensure 'availableTags' 
+                // only reflects the currently viewed page as per requirements.
             }
         } catch (e) {
             // Silently fail preload
@@ -588,7 +574,7 @@
                                 <Label>标签显示</Label>
                                 <p class="text-xs text-muted-foreground">选择的标签内容将会显示</p>
                                 <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                                    {#each sortTags(availableTags).filter(t => !isTagMaskedByRegex(t)) as tag}
+                                    {#each sortTags(availableTags) as tag}
                                         <div class="flex items-center space-x-2">
                                             <Checkbox 
                                                 id={`filter-${tag}`} 
@@ -605,7 +591,7 @@
                                 <Label>标签分行</Label>
                                 <p class="text-xs text-muted-foreground">选择的标签内容将会很好的分行显示</p>
                                 <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-                                    {#each sortTags(availableTags).filter(t => !isTagMaskedByRegex(t)) as tag}
+                                    {#each sortTags(availableTags) as tag}
                                         <div class="flex items-center space-x-2">
                                             <Checkbox 
                                                 id={`newline-${tag}`} 

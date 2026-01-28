@@ -1,5 +1,5 @@
 import { processContentWithScripts, type RegexScript } from "$lib/utils/regexProcessor";
-import { smartFilterTags, processTagNewlines } from "$lib/utils/tagFilter";
+import { smartFilterTags, processTagNewlines, detectTags } from "$lib/utils/tagFilter";
 import { marked } from "marked";
 
 // ============================================================================
@@ -118,7 +118,9 @@ function extractCodeBlocks(text: string): { text: string; blocks: CodeBlock[] } 
 
 // --- 5. 渲染块保护和提取（支持多种标签：piney_render, orange 等）---
 // 需要整体渲染的标签列表
-const RENDER_BLOCK_TAGS = ['piney_render', 'orange'];
+// Note: `details` processing is handled specially in Step 3.5 for ALL blocks,
+// including those nested inside piney_render.
+const RENDER_BLOCK_TAGS = ['piney_render', 'orange', 'details'];
 
 function extractRenderBlocks(text: string): { text: string; blocks: string[] } {
     const blocks: string[] = [];
@@ -126,51 +128,71 @@ function extractRenderBlocks(text: string): { text: string; blocks: string[] } {
 
     // 对每种标签类型进行提取
     for (const tagName of RENDER_BLOCK_TAGS) {
-        const startTag = `<${tagName}>`;
+        // Construct Regex for finding this tag (Case Insensitive, support attributes)
+        // Matches <tagName followed by space or >
+        const startTagRegex = new RegExp(`<${tagName}([\\s>])`, 'i');
         const endTag = `</${tagName}>`;
+
+
         let newResult = '';
         let i = 0;
-        const lowerText = result.toLowerCase();
 
         while (i < result.length) {
-            const startIdx = lowerText.indexOf(startTag, i);
+            // Find start tag using regex on the substring
+            const substr = result.slice(i);
+            const match = substr.match(startTagRegex);
 
-            if (startIdx === -1) {
-                newResult += result.slice(i);
+            if (!match) {
+                newResult += substr;
                 break;
             }
+
+
+            const startIdx = i + match.index!;
+            const startTagLen = match[0].length;
 
             // 添加标签前的内容
             newResult += result.slice(i, startIdx);
 
             // 使用深度计数找到匹配的闭合标签
             let depth = 1;
-            let j = startIdx + startTag.length;
+            let j = startIdx + startTagLen;
 
             while (j < result.length && depth > 0) {
-                const nextStart = lowerText.indexOf(startTag, j);
-                const nextEnd = lowerText.indexOf(endTag, j);
+                const sub = result.slice(j);
 
-                if (nextEnd === -1) {
+                // Find next Start or End
+                const nextStartMatch = sub.match(startTagRegex);
+                const nextEndIdx = sub.toLowerCase().indexOf(endTag.toLowerCase());
+
+                const nextStartRel = nextStartMatch ? nextStartMatch.index! : -1;
+
+                if (nextEndIdx === -1) {
+                    // Unclosed tag - treat rest of string as content? 
+                    // Or just abort block? Standard browser behavior closes at end.
+                    // Let's assume end of string closes it to avoid infinite loop
                     j = result.length;
                     break;
                 }
 
-                if (nextStart !== -1 && nextStart < nextEnd) {
+                // If found start tag CLOSER than end tag
+                if (nextStartRel !== -1 && nextStartRel < nextEndIdx) {
                     depth++;
-                    j = nextStart + startTag.length;
+                    // Advance past this nested start tag
+                    j += nextStartRel + nextStartMatch![0].length;
                 } else {
                     depth--;
+                    // Advance past this end tag
                     if (depth === 0) {
-                        j = nextEnd + endTag.length;
+                        j += nextEndIdx + endTag.length;
                     } else {
-                        j = nextEnd + endTag.length;
+                        j += nextEndIdx + endTag.length;
                     }
                 }
             }
 
-            // 提取整个块（不包含外层标签）
-            const blockContent = result.slice(startIdx + startTag.length, j - endTag.length);
+            // 提取整个块
+            const blockContent = result.slice(startIdx, j);
             const idx = blocks.length;
             blocks.push(blockContent);
             newResult += `\n<!--RENDER_BLOCK_${idx}-->\n`;
@@ -193,6 +215,60 @@ function lightSanitize(html: string): string {
     });
 }
 
+// --- 6.5 处理嵌套的 <details> 标签 ---
+// 用于在已提取的渲染块（如 piney_render）内部查找并处理 <details>
+function processNestedDetails(content: string): string {
+    // Regex to find <details...>...</details> blocks (non-greedy, handles attributes)
+    const detailsRegex = /<details([^>]*)>([\s\S]*?)<\/details>/gi;
+
+    return content.replace(detailsRegex, (fullMatch, attrs, innerContent) => {
+        let summaryHTML = '';
+        let bodyContent = innerContent;
+
+        // Extract summary if present
+        const sumMatch = innerContent.match(/^\s*<summary([^>]*)>([\s\S]*?)<\/summary>/i);
+        if (sumMatch) {
+            const sumAttrs = sumMatch[1];
+            const sumContent = sumMatch[2];
+            summaryHTML = `<summary${sumAttrs}>${marked.parseInline(sumContent, { breaks: true })}</summary>`;
+            bodyContent = innerContent.slice(sumMatch[0].length);
+        }
+
+        // Step 1: Protect code blocks before Markdown processing
+        const codeBlocks: { language: string; content: string }[] = [];
+        let protectedBody = bodyContent.replace(/```(\w*)\n?([\s\S]*?)```/g, (match: string, lang: string, code: string) => {
+            const idx = codeBlocks.length;
+            codeBlocks.push({ language: lang || '', content: code });
+            return `<!--DETAILS_CODE_${idx}-->`;
+        });
+
+        // Step 2: Force hard breaks and parse body
+        const safeBody = protectedBody.replace(/\n/g, '  \n');
+        let bodyHTML = marked.parse(safeBody, { async: false, breaks: true }) as string;
+
+        // Step 3: Restore code blocks with proper styling
+        codeBlocks.forEach((block, idx) => {
+            const placeholder = `<!--DETAILS_CODE_${idx}-->`;
+            const langClass = block.language ? `language-${block.language}` : '';
+            const escaped = block.content
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            // Check if it's an HTML code block (should be rendered in iframe by history page)
+            const isHtml = isHtmlCodeBlock(block.language);
+            const codeHtml = isHtml
+                ? `<pre class="piney-iframe-code" data-lang="${block.language}"><code class="${langClass}">${escaped}</code></pre>`
+                : `<pre><code class="${langClass}">${escaped}</code></pre>`;
+
+            bodyHTML = bodyHTML.replace(`<p>${placeholder}</p>`, codeHtml);
+            bodyHTML = bodyHTML.replace(placeholder, codeHtml);
+        });
+
+        return `<details${attrs}>${summaryHTML}${bodyHTML}</details>`;
+    });
+}
+
 // --- 7. 主渲染管道 ---
 interface RenderOptions {
     chatRegex?: RegexScript[];
@@ -205,9 +281,11 @@ export interface ProcessedResult {
     html: string;
     codeBlocks: CodeBlock[];
     renderBlocks: string[];
+    detectedTags: Set<string>; // New field
 }
 
 export function processTextWithPipeline(text: string, options: RenderOptions): ProcessedResult {
+
     let res = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     // ========== Step 0: 预处理 - 规范化带空格的标签 ==========
@@ -229,22 +307,101 @@ export function processTextWithPipeline(text: string, options: RenderOptions): P
         res = processContentWithScripts(res, options.cardRegex, { isMarkdown: true });
     }
 
+    // ========== Step 2.5: 标签检测 ==========
+    // 在这里检测标签（正则处理后，渲染块提取前）
+    const detectedTags = detectTags(res);
+
+
     // ========== Step 3: 提取渲染块 ==========
     // 必须在正则处理之后，因为正则会添加 <piney_render> 标签
     // 支持 piney_render, orange 等标签
-    const { text: afterRenderExtract, blocks: renderBlocks } = extractRenderBlocks(res);
+    let { text: afterRenderExtract, blocks: renderBlocks } = extractRenderBlocks(res);
     res = afterRenderExtract;
 
-    // ========== Step 4: 标签过滤（可选）==========
+
+    // ========== Step 3.5: 对提取的渲染块应用设置 ==========
+    // 因为渲染块被提取保护了，所以需要单独对其应用隐藏/换行设置
+    if (renderBlocks.length > 0) {
+        renderBlocks = renderBlocks.map(block => {
+            const match = block.match(/^<([\w-]+)/);
+            if (!match) return block;
+            const tagName = match[1].toLowerCase();
+
+
+            // 1. 过滤（隐藏）- Case Insensitive Check
+            if (options.hiddenTags && options.hiddenTags.some(t => t.toLowerCase() === tagName)) {
+                return ''; // Replace with empty string (removes block)
+            }
+
+            // 2. Details 特殊处理 (Manually Render Content)
+            if (tagName === 'details') {
+                // Capture Attributes before stripping
+                const startTagMatch = block.match(/^<details([^>]*)>/i);
+                const attrs = startTagMatch ? startTagMatch[1] : '';
+
+                // Remove outer tags
+                let content = block.replace(/^<details[^>]*>/i, '').replace(/<\/details>$/i, '');
+
+                let summaryHTML = '';
+                const sumMatch = content.match(/^\s*<summary(.*?)>([\s\S]*?)<\/summary>/i);
+                if (sumMatch) {
+                    const sumAttrs = sumMatch[1];
+                    const sumContent = sumMatch[2];
+                    // Parse Summary Inline with breaks: true
+                    summaryHTML = `<summary${sumAttrs}>${marked.parseInline(sumContent, { breaks: true })}</summary>`;
+
+                    // Remove summary from content safely
+                    if (sumMatch.index !== undefined) {
+                        content = content.slice(0, sumMatch.index) + content.slice(sumMatch.index + sumMatch[0].length);
+                    }
+                }
+
+                // Parse Body (Block) with breaks: true
+                // Double-ensure breaks by injecting spacing forcing (Standard Markdown behavior for hard breaks)
+                // Since code blocks are already extracted, this is safe to apply greedily
+                const safeContent = content.replace(/\n/g, '  \n');
+
+
+                const bodyHTML = marked.parse(safeContent, { async: false, breaks: true }) as string;
+
+
+                // Restore Attributes (and ensure summary is first)
+                return `<details${attrs}>${summaryHTML}${bodyHTML}</details>`;
+            }
+
+            // 3. 换行处理 - Case Insensitive Check
+            // 如果标签启用了换行，我们对块内容应用 processTagNewlines
+            if (options.newlineTags && options.newlineTags.some(t => t.toLowerCase() === tagName)) {
+                // Reuse processTagNewlines logic on the block string itself
+                // We pass the detected lowercase tagName to ensure regex matches
+                // Force=true to bypass hasCommonHtml check for these explicit blocks
+                return processTagNewlines(block, [tagName], [tagName], true);
+            }
+            return block;
+        });
+    }
+
+    // ========== Step 3.6: 处理嵌套的 <details> ==========
+    // 因为 piney_render 可能包含 <details>，而 <details> 需要特殊 Markdown 处理
+    // 这里对所有渲染块递归处理其中的 <details>
+    if (renderBlocks.length > 0) {
+        renderBlocks = renderBlocks.map(block => processNestedDetails(block));
+    }
+
+    // ========== Step 4: 标签过滤（剩余文本）==========
     if (options.hiddenTags && options.hiddenTags.length > 0) {
         res = smartFilterTags(res, options.hiddenTags);
     }
 
-    // ========== Step 5: 标签换行处理 ==========
+    // ========== Step 5: 标签换行处理（剩余文本）==========
+    // 用户要求其他标签（如 thought）应用 <content> 的逻辑（即不强制分行，交给 Markdown 处理）
+    // 所以这里不再对剩余文本进行 processTagNewlines 处理
+    /*
     if (options.newlineTags) {
         const allTags = [...new Set([...(options.hiddenTags || []), ...options.newlineTags])];
         res = processTagNewlines(res, allTags, options.newlineTags);
     }
+    */
 
     // ========== Step 6: 压缩过多空行 ==========
     res = res.replace(/(\n\s*){3,}/g, '\n\n');
@@ -289,9 +446,10 @@ export function processTextWithPipeline(text: string, options: RenderOptions): P
     html = lightSanitize(html);
 
     return {
-        html,
+        html: html,
         codeBlocks,
-        renderBlocks
+        renderBlocks,
+        detectedTags
     };
 }
 

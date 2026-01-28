@@ -132,14 +132,51 @@ export function detectTags(text: string): Set<string> {
     content = content.replace(/`[^`]*`/g, '');
     content = content.replace(/<!--[\s\S]*?-->/g, '');
 
-    // 2. Strict Regex from exportUtils.ts (Updated for Unicode)
-    // Matches <tag> ... </tag>
-    // Group 1: Tag Name (Unicode letters, numbers, _, -, .)
-    // Reference \1 ensures close tag matches open tag name
-    const regex = /<([\p{L}0-9_\-\.]+)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gu;
+    const IGNORED_TAGS = new Set([
+        'content', 'piney_render',
+        // Common HTML Tags (Blocklist)
+        'div', 'span', 'p', 'a', 'img', 'br', 'hr',
+        'table', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'caption',
+        'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+        'form', 'input', 'button', 'select', 'option', 'textarea', 'label', 'fieldset', 'legend',
+        'header', 'footer', 'nav', 'aside', 'article', 'section', 'main',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'blockquote', 'pre', 'code', 'strong', 'em', 'i', 'b', 'u', 's', 'strike', 'del', 'mark', 'small', 'sub', 'sup',
+        'iframe', 'video', 'audio', 'canvas', 'svg', 'path', 'circle', 'rect',
+        'script', 'style', 'link', 'meta'
+        // NOT ignoring: details, summary, and unknown tags (like orange)
+    ]);
 
-    for (const m of content.matchAll(regex)) {
-        tags.add(m[1]);
+    // 2. Robust Scan: Find all Open Tags and check if a corresponding Close Tag exists.
+    // This supports nested tags (e.g. <details><summary>...</summary></details>)
+    // Regex matches <tag ... >
+    const openTagRegex = /<([\p{L}0-9_\-\.]+)(?:\s[^>]*)?>/gu;
+    const candidates = new Set<string>();
+
+    for (const m of content.matchAll(openTagRegex)) {
+        candidates.add(m[1].toLowerCase()); // Store lowercase for potential case-insensitive matching if needed, but keeping original casing for display is better? 
+        // Actually, let's store usage casing but check unique.
+    }
+
+    // Check each candidate for existence of a closing tag
+    for (const tagNameLower of candidates) {
+        if (IGNORED_TAGS.has(tagNameLower)) continue;
+
+        // Skip self-closing void tags or common HTML that shouldn't be treated as "tags" for settings?
+        // But user wants <details>, so we scan all.
+        // We need original casing? matchAll gives us captured name.
+
+        // Find if </tagName> exists
+        // construct regex for closing tag </TagName> (case insensitive matching usually preferred for HTML, but XML is strict)
+        // Assume case-insensitive for robustness
+        const closeTagRegex = new RegExp(`</${tagNameLower}>`, 'i');
+        if (closeTagRegex.test(content)) {
+            // Find the original casing from the content to return nice display name
+            // We use the first occurrence's casing from the candidate scan
+            const originalCasing = Array.from(content.matchAll(openTagRegex))
+                .find(m => m[1].toLowerCase() === tagNameLower)?.[1] || tagNameLower;
+            tags.add(originalCasing);
+        }
     }
     return tags;
 }
@@ -227,16 +264,73 @@ function locateTagContentRanges(text: string, tag: string): { start: number, end
 }
 
 /**
- * For specified tags, convert \n to <br> within their content
- * Preserves other HTML structure.
- * Uses Robust Parsing (Token-based) instead of simplified Regex.
+ * Locate FULL ranges (including tags) for a specific tag using robust parsing
  */
-export function processTagNewlines(text: string, allTags: string[], enabledTags: string[]): string {
+export function locateFullTagRanges(text: string, tag: string): { start: number, end: number }[] {
+    const tagLower = tag.toLowerCase();
+    const escapedTag = tagLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Robust Regex
+    const openTagRegex = new RegExp(`<(${escapedTag})(?:\\s[^>]*)?>`, 'gi');
+    const closeTagRegex = new RegExp(`</${escapedTag}>`, 'gi');
+
+    const openTags: { index: number, end: number, type: 'open' }[] = [];
+    const closeTags: { index: number, end: number, type: 'close' }[] = [];
+
+    for (const match of text.matchAll(openTagRegex)) {
+        openTags.push({ index: match.index!, end: match.index! + match[0].length, type: 'open' });
+    }
+    for (const match of text.matchAll(closeTagRegex)) {
+        closeTags.push({ index: match.index!, end: match.index! + match[0].length, type: 'close' });
+    }
+
+    if (openTags.length === 0 && closeTags.length === 0) return [];
+
+    const anyTagStartRegex = /<[\p{L}0-9_\-\.]+(?:\s[^>]*)?>/gu;
+    const allTagStartPositions: number[] = [];
+    for (const match of text.matchAll(anyTagStartRegex)) {
+        allTagStartPositions.push(match.index!);
+    }
+
+    const allTargetTags = [...openTags, ...closeTags].sort((a, b) => a.index - b.index);
+    const fullRanges: { start: number, end: number }[] = [];
+    const openStack: typeof openTags[0][] = [];
+    const currentTagOpenPositions = new Set(openTags.map(t => t.index));
+
+    for (const tagObj of allTargetTags) {
+        if (tagObj.type === 'open') {
+            openStack.push(tagObj);
+        } else {
+            if (openStack.length > 0) {
+                const openTag = openStack.pop()!;
+                if (tagObj.index > openTag.index) { // Check valid order
+                    fullRanges.push({ start: openTag.index, end: tagObj.end });
+                }
+            }
+        }
+    }
+
+    // Handle unclosed open tags (extend to next tag or end)
+    for (const openTag of openStack) {
+        let nextTagPos = text.length;
+        for (const pos of allTagStartPositions) {
+            if (pos > openTag.index && !currentTagOpenPositions.has(pos)) {
+                nextTagPos = pos;
+                break;
+            }
+        }
+        fullRanges.push({ start: openTag.index, end: nextTagPos });
+    }
+
+    return fullRanges;
+}
+
+
+// Modified processTagNewlines to allow inline HTML
+export function processTagNewlines(text: string, allTags: string[], enabledTags: string[], force: boolean = false): string {
     if (!allTags.length) return text;
 
     // 0. Sort Tags: Enabled (Preserve Newline) First
-    // This allows nested tags (e.g. Enabled Poem inside Disabled Thought) to process first and preserve their newlines,
-    // before the outer tag collapses everything else.
     const sortedTags = [...allTags].sort((a, b) => {
         const aEnabled = enabledTags.includes(a);
         const bEnabled = enabledTags.includes(b);
@@ -255,41 +349,33 @@ export function processTagNewlines(text: string, allTags: string[], enabledTags:
     // 2. Process Tags
     for (const tag of sortedTags) {
         const isEnabled = enabledTags.includes(tag);
-
-        // Re-locate ranges in the CURRENT state (since we modify it)
         let ranges = locateTagContentRanges(maskedText, tag);
 
         if (ranges.length === 0) continue;
 
-        // FILTER OVERLAPPING RANGES (Same-type nesting)
-        // Keep only Outermost ranges (which contain the inner ones).
-        // Since the setting applies to the whole tag type, processing the outer block is sufficient/correct.
+        // Simple nesting filter: outermost only
         ranges = ranges.filter(r =>
             !ranges.some(other => other !== r && other.start <= r.start && other.end >= r.end)
         );
-
-        // Sort ranges by start position
         ranges.sort((a, b) => a.start - b.start);
 
         let newText = "";
         let cursor = 0;
 
         for (const range of ranges) {
-            // Append unaffected pre-content
             if (range.start > cursor) {
                 newText += maskedText.slice(cursor, range.start);
             }
 
-            // Process content
             const content = maskedText.slice(range.start, range.end);
 
-            // Safety check for HTML block tags
-            const hasCommonHtml = /<\/?(?:div|p|table|tr|td|th|ul|ol|li|script|style|blockquote|pre|form|input)\b/i.test(content);
+            // CHANGED: Only block Block-Level Elements. Allow inline (br, span, strong, etc.)
+            // Removed: br, span, strong, em, i, b, u, s, small, sub, sup, code
+            const hasBlockHtml = /<\/?(?:div|p|table|tr|td|th|ul|ol|li|script|style|blockquote|pre|form|input|textarea|select|option|header|footer|nav|section|article|main|aside|fieldset|legend|h[1-6])\b/i.test(content);
 
-            if (hasCommonHtml) {
-                newText += content; // No change
+            if (!force && hasBlockHtml) {
+                newText += content; // No change if block HTML present
             } else {
-                // Apply transformation
                 const processed = isEnabled
                     ? content.replace(/\n/g, '<br>')
                     : content.replace(/\n/g, ' ');
@@ -299,7 +385,6 @@ export function processTagNewlines(text: string, allTags: string[], enabledTags:
             cursor = range.end;
         }
 
-        // Append remaining text
         if (cursor < maskedText.length) {
             newText += maskedText.slice(cursor);
         }
@@ -313,4 +398,3 @@ export function processTagNewlines(text: string, allTags: string[], enabledTags:
 
     return res;
 }
-

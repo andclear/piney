@@ -13,7 +13,7 @@ const STANDARD_HTML_TAGS = new Set([
     'table', 'tr', 'td', 'th', 'thead', 'tbody',
     'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'sub', 'sup',
     'pre', 'code', 'blockquote', 'q', 'cite',
-    'details', 'summary', 'header', 'footer', 'nav', 'main', 'section', 'article', 'aside',
+    'header', 'footer', 'nav', 'main', 'section', 'article', 'aside',
     'figure', 'figcaption', 'style', 'script', 'form', 'input', 'button', 'select', 'option', 'textarea', 'label'
 ]);
 
