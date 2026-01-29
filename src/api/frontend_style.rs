@@ -9,10 +9,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::Utc;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
-};
+use chrono::{TimeZone, Utc};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryOrder, Set};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -67,8 +65,8 @@ impl From<frontend_style::Model> for StyleResponse {
             html_code: m.html_code,
             worldinfo_key: m.worldinfo_key,
             worldinfo_content: m.worldinfo_content,
-            created_at: m.created_at.to_string(),
-            updated_at: m.updated_at.to_string(),
+            created_at: Utc.from_utc_datetime(&m.created_at).to_rfc3339(),
+            updated_at: Utc.from_utc_datetime(&m.updated_at).to_rfc3339(),
         }
     }
 }
@@ -102,7 +100,7 @@ pub async fn list_styles(
         .map(|s| StyleListItem {
             id: s.id,
             name: s.name,
-            updated_at: s.updated_at.to_string(),
+            updated_at: Utc.from_utc_datetime(&s.updated_at).to_rfc3339(),
         })
         .collect();
 

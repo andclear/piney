@@ -883,6 +883,26 @@ ${info.outerHTML}`;
         window.addEventListener('message', handleIframeMessage);
         return () => window.removeEventListener('message', handleIframeMessage);
     });
+    function formatDate(dateStr: string) {
+        if (!dateStr) return '';
+        let d: Date;
+        if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
+            d = new Date(dateStr + 'Z');
+        } else {
+            d = new Date(dateStr);
+        }
+        
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleString('zh-CN', {
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit',
+            hour12: false 
+        });
+    }
 </script>
 
 <div class="flex flex-col h-full">
@@ -1052,7 +1072,7 @@ ${info.outerHTML}`;
                                 class={`px-2.5 py-1 text-xs rounded transition-colors ${renderMode === 'code' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
                                 onclick={() => renderMode = 'code'}
                             >
-                                仅代码
+                                仅预览
                             </button>
                             <button 
                                 class={`px-2.5 py-1 text-xs rounded transition-colors ${renderMode === 'full' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
@@ -1060,7 +1080,7 @@ ${info.outerHTML}`;
                                 disabled={!originalText.trim() || !regexPattern.trim()}
                                 title={!originalText.trim() || !regexPattern.trim() ? '需要原始文本和正则表达式' : '应用正则替换'}
                             >
-                                完整内容
+                                实际应用
                             </button>
                         </div>
                         
@@ -1184,39 +1204,54 @@ ${info.outerHTML}`;
     onConfirm={handleInsertToCard}
 />
 
-<!-- 样式库 Sheet -->
-<Sheet.Root bind:open={libraryOpen}>
-    <Sheet.Content side="right" class="w-[400px]">
-        <Sheet.Header>
-            <Sheet.Title>样式库</Sheet.Title>
-            <Sheet.Description>选择一个样式加载到编辑器</Sheet.Description>
-        </Sheet.Header>
-        <div class="py-4 space-y-2 max-h-[70vh] overflow-y-auto">
-            {#if styleLibrary.length === 0}
-                <div class="text-center text-muted-foreground py-8">
-                    暂无保存的样式
-                </div>
-            {:else}
-                {#each styleLibrary as style}
-                    <div class="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 cursor-pointer group"
-                         onclick={() => loadStyle(style.id)}
-                         role="button"
-                         tabindex="0"
-                         onkeydown={(e) => e.key === 'Enter' && loadStyle(style.id)}>
-                        <div>
-                            <div class="font-medium">{style.name}</div>
-                            <div class="text-xs text-muted-foreground">{style.updated_at}</div>
-                        </div>
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            class="h-8 w-8 opacity-0 group-hover:opacity-100"
-                            onclick={(e) => { e.stopPropagation(); deleteStyle(style.id); }}
-                        >
-                            <Trash2 class="w-4 h-4 text-destructive" />
-                        </Button>
+
+    <!-- 样式库 Sheet -->
+    <Sheet.Root bind:open={libraryOpen}>
+        <Sheet.Content side="right" class="w-[400px] flex flex-col p-0 gap-0">
+            <Sheet.Header class="px-6 py-4 border-b">
+                <Sheet.Title>样式库</Sheet.Title>
+                <Sheet.Description>管理您保存的样式预设</Sheet.Description>
+            </Sheet.Header>
+            
+            <div class="flex-1 overflow-y-auto px-6 py-6">
+                {#if styleLibrary.length === 0}
+                    <div class="flex flex-col items-center justify-center h-40 text-muted-foreground border-2 border-dashed rounded-lg">
+                        <Library class="w-8 h-8 mb-2 opacity-20" />
+                        <span>暂无保存的样式</span>
                     </div>
-                {/each}
+                {:else}
+                    <div class="space-y-3">
+                    {#each styleLibrary as style}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <div class="relative flex flex-col p-4 rounded-xl border bg-card text-card-foreground shadow-sm transition-all hover:shadow-md hover:border-primary/50 group cursor-pointer"
+                             onclick={() => loadStyle(style.id)}
+                             role="button"
+                             tabindex="0">
+                            
+                            <div class="flex items-start justify-between mb-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="p-1.5 rounded-md bg-primary/10 text-primary">
+                                        <Sparkles class="w-4 h-4" />
+                                    </div>
+                                    <span class="font-semibold">{style.name}</span>
+                                </div>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    class="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 -mr-2 -mt-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onclick={(e) => { e.stopPropagation(); deleteStyle(style.id); }}
+                                >
+                                    <Trash2 class="w-4 h-4" />
+                                </Button>
+                            </div>
+                            
+                            <div class="flex items-center text-xs text-muted-foreground mt-1">
+                                <span class="bg-muted px-1.5 py-0.5 rounded text-[10px] mr-2">更新于</span>
+                                {formatDate(style.updated_at)}
+                            </div>
+                        </div>
+                    {/each}
+                </div>
             {/if}
         </div>
     </Sheet.Content>
