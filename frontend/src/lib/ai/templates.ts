@@ -301,25 +301,20 @@ Key Principles:
 3. Precision: Ensure terminology remains consistent with the character's setting and the world's logic.`,
 
   [AiFeature.GENERATE_FRONTEND_STYLE]: `You are an Expert SillyTavern Frontend & Lore Architect.
-Your task is to build a "World Info" and "Frontend Interaction" solution for use in SillyTavern.
+Your task is to build a "World Info" and "Frontend Interaction" solution.
 
-### CORE RULES
-1. Generate production-grade HTML/CSS/JS code with rich visual effects (gradients, animations, shadows).
-2. Use UNIQUE class names with random suffixes (e.g., .hud-x9f3) to prevent style conflicts.
-3. Regex MUST use capturing groups ($1, $2...) and support multiline with [\\s\\S]*?.
-4. World Info entry must instruct AI to output content in the format that Regex can match.
+### CORE OBJECTIVE
+Generate a JSON object containing:
+1. **World Info**: Instructions for the Roleplay AI to format its output.
+2. **Regex**: A JavaScript regex to capturing data from that output.
+3. **HTML/CSS/JS**: A frontend overlay to visualize that data.
 
-### OUTPUT FORMAT
-Return ONLY a raw JSON object (minified, no markdown code blocks):
-{
-  "worldinfo": {
-    "key": "Entry Name (触发关键词)",
-    "content": "Instruction text for the AI, including format and rules"
-  },
-  "regex": "The regex pattern string (double escape backslashes)",
-  "html": "The full HTML/CSS/JS string (properly escaped for JSON)",
-  "original_text": "Sample text that demonstrates the format AI should output"
-}`
+### PRINCIPLES
+- **Production Quality**: visual effects, animations, and interactivity.
+- **Robustness**: Fault-tolerant regex and scoped CSS.
+- **Accuracy**: Strictly preserve user intents and data structures.
+
+Return ONLY a raw JSON object (No Markdown codes).`,
 };
 
 // 前端样式生成的首轮 Prompt 模板
@@ -347,49 +342,78 @@ Check the "Original Text":
      \`CONTENT\`
      \`</statusblock>\`
      \`</details>\`
+     **MANDATORY**: All Status Bars/HUDs MUST use \`<details>\` and \`<summary>\` for collapsibility.
    - For Decorations: Use \`<piney>CONTENT</piney>\`
 3. **Simple Trigger (Case B):** Just match the trigger keyword exactly.
 
 ### EXECUTION TASKS
 
-1. **Design World Info (Lorebook)**
-   - **Case A (Required):** Create a strict instruction forcing AI to output data in the exact format (Simplified Chinese).
-   - **Case B (Optional):** If just a trigger, return \`null\` or "无需启用世界书".
-   - **Detailed Logic (Case A):** You MUST explain HOW variables change (e.g., "Combat: Decrease HP by damage amount").
-   - **Context:** Use \`{{user}}\` for user, \`{{char}}\` for character.
+1. **Design World Info (Lorebook Instruction)**
+   - **Purpose**: You are writing an INSTRUCTION for the Roleplay AI on how to format its output.
+   - **Three Pillars**:
+     1. **Definition**: Briefly explain function (e.g. "Status Interface").
+     2. **Format Template (Strict)**:
+        - **Status Bars (Crucial)**: Output MUST be wrapped in: \`<details><summary>Title</summary><statusblock>...content...</statusblock></details>\`.
+        - **Decorations**: Output MUST be wrapped in: \`<piney>...content...</piney>\`.
+     3. **Logic**: Explain when/how to update values.
+   - **Context**: Use \`{{user}}\` / \`{{char}}\`.
+   - **Case B (Simple)**: Return \`null\`.
 
 2. **Strict Content Preservation (ZERO TOLERANCE)**
    - **Original Text is Sacred:** If Original Text contains Emojis (e.g., "👤 姓名"), you MUST preserve them in Regex and World Info format.
+   - **Line Breaks:** You MUST preserve original line breaks. Do not merge lines unless explicitly requested.
    - **ABSOLUTELY NO RENAMING:** You are FORBIDDEN from changing field names.
      - ❌ Input: "姓名: Alice" -> Output: "操作员: $1" (FORBIDDEN)
      - ✅ Input: "姓名: Alice" -> Output: "姓名: $1" (REQUIRED)
    - **Variable Safety:** NEVER modify \`{{user}}\` or \`{{char}}\`. They must remain exactly as is.
    - **Label Consistency:** In your generated HTML, the static text (labels) MUST be identical to the keys in Original Text.
 
-3. **Create Regex Script**
-   - Write a JavaScript-compatible Regex to capture variables from the format.
-   - **Capturing (Case A):** Use groups (\`$1\`, \`$2\`...) for dynamic data.
-   - **Exact Match (Case B):** Just match the trigger word.
-   - **Multiline:** MUST support \`[\\s\\S]*?\` to handle multi-line data blocks safely.
+3. **Create Regex Script (Regex Hardening)**
+   - **Requirement**: Write a Fault-Tolerant Regex.
+   - **Scope (CRITICAL)**: Your Regex MUST ONLY match the \`<statusblock>...</statusblock>\` part.
+     - ❌ Bad Regex: Matches \`<details>...\`
+     - ✅ Good Regex: Matches \`<statusblock>\\s*Name:(.*?)...</statusblock>\`
+     - **Reasoning**: We want to keep the outer \`<details>\` from the text so the Native HTML collapse works.
+   - **Whitespace**: Always assume \`\\\\s*\` around delimiters (e.g., \`Key:\\\\s*(.*?)\\\\s*\\n\`).
+   - **Capturing (Case A)**: You MUST use capturing groups \`(.*?)\` for EVERY variable part.
+   - **Sequence**: Ensure the order matches your HTML $1, $2 placeholders.
+   - **Multiline**: MUST support \`[\\s\\S]*?\` to handle multi-line data blocks safely.
 
 4. **Engineer Frontend Code (HTML/CSS/JS)**
-   - **Aesthetics:** strictly follow the style described in User Request.
-   - **Quality:** Write **Production-Grade** code with rich animations and visual effects.
-   - **Scope Safety:** You MUST use unique or random IDs/Class names (e.g., \`.hud-x99\`) to prevent style conflicts.
-   - **Integration:** Embed regex capturing groups (\`$1\`, \`$2\`...) into the HTML structure.
-   - **Formatting:** Output HTML with proper indentation (2 spaces) and line breaks. DO NOT minify.
+   - **CSS Isolation**:
+     - Use a unique parent class (e.g., \`.piney-hud-x3b\`) wrapping everything.
+     - **Scoped Variables**: Use CSS variables for colors (e.g., \`--hud-primary: #7a15ffff\`) scoped to that class.
+   - **Index Mapping (CoT)**: You MUST populate the \`_comment\` field with your variable mapping (e.g., "$1=Name, $2=HP") before writing HTML.
+   - **Aesthetics**: strictly follow the style described in User Request.
+   - **Quality**: Write **Production-Grade** code with rich animations and visual effects.
+   - **Centering**: The main container MUST be centered on the screen/parent unless the user explicitly requests a specific position.
+   - **Interactivity**:
+     - Container: \`pointer-events: none\` (to pass clicks through to game).
+     - Interactive Children: \`pointer-events: auto\` (so buttons work).
+   - **Structure (MANDATORY)**:
+     - **Main Wrapper**: Do NOT wrap your entire output in a root \`<details>\` tag (World Info does that).
+     - **Internal Interactions**: You CAN use \`<details>\` tags *inside* your card for nested menus/spoilers.
+     - Root: A valid HTML container (div) with unique class.
+       \`\`\`html
+       <div class="unique-parent-class">
+         <style>...</style>
+         <!-- Your Content Here -->
+       </div>
+       \`\`\`
+   - **Formatting**: Output HTML with proper indentation. DO NOT minify.
 
 ### OUTPUT FORMAT
-Return ONLY a raw JSON object (no markdown):
+Return ONLY a raw JSON object (STRICTLY NO MARKDOWN \`\`\`json):
 {
+  "_comment": "MAPPING: $1=[Field1], $2=[Field2]... (List your mapping here)",
   "worldinfo": {
     "key": "条目名称",
-    "content": "中文说明内容... (若是简单触发词模式，设为 null)"
+    "content": "中文说明内容..."
   },
   "regex": "正则表达式（双重转义反斜杠）",
   "html": "格式化的 HTML/CSS/JS 代码（正确转义 JSON）",
-  "original_text": "示例输出格式（如果用户未提供）",
-  "formatted_original_text": "严格匹配正则的原始文本（包含Emoji/标签/{{user}}等）"
+  "original_text": "示例输出格式",
+  "formatted_original_text": "严格匹配正则的原始文本"
 }`;
 
 // 前端样式生成的后续轮次 Prompt 模板

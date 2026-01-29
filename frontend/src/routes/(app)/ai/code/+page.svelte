@@ -25,7 +25,10 @@
     import Loader2 from '@lucide/svelte/icons/loader-2';
     import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
     import X from '@lucide/svelte/icons/x';
+    import IdCard from '@lucide/svelte/icons/id-card';
     import { formatHtml } from '$lib/utils/renderUtils';
+    import InsertToCardDialog from '$lib/components/ai/InsertToCardDialog.svelte';
+    import { API_BASE } from '$lib/api';
 
     // 设置面包屑导航
     onMount(() => {
@@ -188,6 +191,30 @@
             padding: 16px; 
             font-family: system-ui, sans-serif;
         }
+        
+        /* 强制修复 details/summary 交互 */
+        /* 强制修复 details/summary 交互 (Aggressive Reset) */
+        details, summary { 
+            display: block; 
+            pointer-events: auto !important; 
+        }
+        details > summary { 
+            cursor: pointer !important; 
+            list-style: none; /* Reset native marker style first to avoid conflicts */
+        }
+        details > summary::-webkit-details-marker {
+            display: none; /* Hide default marker for custom styling if needed */
+        }
+        /* Re-add a visible marker if AI doesn't provide one, or rely on AI providing one? 
+           Let's just ensure it's clickable. If AI hides marker, that's fine. 
+           But we must ensure pointer-events: auto works even inside disabled containers. 
+        */
+        *:where(button, a, input, select, textarea, details, summary) {
+            pointer-events: auto !important;
+        }
+        
+        details > summary:hover { opacity: 0.8; }
+        
         ${editModeStyle}
     </style>
 </head>
@@ -658,6 +685,177 @@
             selectedTagName = '';
         }
     }
+
+    // ==================== 插入到角色卡逻辑 ====================
+    let insertDialogOpen = $state(false);
+    
+    async function handleInsertToCard(cardTarget: any) {
+        if (!regexPattern && !htmlCode) {
+             toast.error("无可用的生成内容");
+             return;
+        }
+
+        const toastId = toast.loading("正在插入到角色卡...");
+        try {
+            const token = localStorage.getItem("auth_token");
+            
+            // 1. Fetch full card details
+            const cardRes = await fetch(`${API_BASE}/api/cards/${cardTarget.id}`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {} 
+            });
+            if (!cardRes.ok) throw new Error("获取角色卡详情失败");
+            const fullCard = await cardRes.json();
+            
+            // Parse data
+            let cardData = fullCard.data;
+            if (typeof cardData === 'string') {
+                 try { cardData = JSON.parse(cardData); } catch {}
+            }
+            if (!cardData) cardData = {};
+            
+            // V2 structure check
+            const v2Data = cardData.data || cardData;
+            
+            // --- 2. Prepare World Info ---
+            let characterBook = v2Data.character_book || cardData.character_book;
+            const currentExtensions = v2Data.extensions || {};
+            let newExtensions = { ...currentExtensions };
+            
+            // Check if we need to create a new book
+            if (!characterBook) {
+                const bookName = `${fullCard.name}_世界书`;
+                characterBook = { 
+                    entries: [], 
+                    name: bookName 
+                };
+                // CRITICAL: Set the World Name in extensions for V2 compatibility
+                newExtensions.world = bookName;
+            }
+            
+            // Normalize entries
+            let entries = [];
+            let isMap = false;
+            if (Array.isArray(characterBook.entries)) {
+                entries = [...characterBook.entries];
+            } else if (characterBook.entries) {
+                entries = Object.values(characterBook.entries);
+                isMap = true;
+            }
+            
+            const maxId = entries.reduce((max: number, e: any) => Math.max(max, Number(e.id || e.uid || 0)), 0);
+            const newId = maxId + 1;
+            
+            // FULL SCHEMA conforming to WorldInfoTab.svelte defaults
+            const newEntry = {
+                id: newId,
+                keys: [worldinfoKey],
+                secondary_keys: [], // REQUIRED
+                comment: worldinfoKey || "AI生成条目",
+                content: worldinfoContent || "",
+                constant: true, // User requirement
+                selective: true, // Default
+                insertion_order: 100,
+                enabled: true,
+                position: "before_char",
+                use_regex: true,
+                extensions: { 
+                    position: 0,
+                    exclude_recursion: false,
+                    display_index: entries.length,
+                    probability: 100,
+                    useProbability: true,
+                    depth: 4,
+                    selectiveLogic: 0,
+                    outlet_name: "",
+                    group: "",
+                    group_override: false,
+                    group_weight: 100,
+                    prevent_recursion: false,
+                    delay_until_recursion: false,
+                    scan_depth: null,
+                    match_whole_words: null,
+                    use_group_scoring: false,
+                    case_sensitive: null,
+                    automation_id: "",
+                    role: 0, 
+                    vectorized: false,
+                    sticky: 0,
+                    cooldown: 0,
+                    delay: 0,
+                    match_persona_description: false,
+                    match_character_description: false,
+                    match_character_personality: false,
+                    match_character_depth_prompt: false,
+                    match_scenario: false,
+                    match_creator_notes: false,
+                    triggers: [],
+                    ignore_budget: false,
+                }
+            };
+            
+            if (Array.isArray(characterBook.entries)) {
+                characterBook.entries.push(newEntry);
+            } else {
+                 characterBook.entries[String(newId)] = newEntry;
+            }
+
+            // --- 3. Prepare Regex Scripts ---
+            // Note: we update `newExtensions.regex_scripts` AND send it.
+            // But we must handle partial update logic carefully.
+            // If we send `extensions` payload, it replaces EVERYTHING in DB extensions.
+            // So we must include ALL existing extensions + new world name + new regex scripts.
+            
+            const existingScripts = Array.isArray(newExtensions.regex_scripts) ? [...newExtensions.regex_scripts] : [];
+            
+            const newScript = {
+                id: crypto.randomUUID(),
+                scriptName: worldinfoKey || "AI正则",
+                findRegex: regexPattern,
+                replaceString: htmlCode,
+                trimStrings: [],
+                placement: [2],
+                disabled: false,
+                markdownOnly: true,
+                promptOnly: false,
+                runOnEdit: true,
+                substituteRegex: 0,
+                minDepth: null,
+                maxDepth: null
+            };
+            
+            const updatedScripts = [...existingScripts, newScript];
+            newExtensions.regex_scripts = updatedScripts;
+
+            // --- 4. Send Payload ---
+            // We use `extensions` key to update everything safely (World Name + Regex + Others)
+            // We also send `character_book`
+            
+            const payload = {
+                extensions: newExtensions, // Sends updated world name & regex scripts together
+                character_book: characterBook
+            };
+
+            const updateRes = await fetch(`${API_BASE}/api/cards/${cardTarget.id}`, {
+                 method: 'PATCH',
+                 headers: {
+                     'Content-Type': 'application/json',
+                     ...(token ? { Authorization: `Bearer ${token}` } : {})
+                 },
+                 body: JSON.stringify(payload)
+            });
+             
+            if (!updateRes.ok) throw new Error("更新角色卡失败");
+             
+            toast.success("已插入到角色卡");
+            insertDialogOpen = false;
+
+        } catch (e: any) {
+            console.error(e);
+            toast.error("插入失败: " + e.message);
+        } finally {
+            toast.dismiss(toastId);
+        }
+    }
     
     // 选中的元素标签名（用于显示 #tag）
     let selectedTagName = $state('');
@@ -897,6 +1095,7 @@ ${info.outerHTML}`;
                 </Tabs.Content>
                 
                 <Tabs.Content value="output" class="flex-1 overflow-y-auto m-0 p-4 space-y-4">
+
                     <!-- 正则 -->
                     <div>
                         <div class="flex items-center justify-between mb-2">
@@ -946,6 +1145,13 @@ ${info.outerHTML}`;
                             class="min-h-[150px]"
                         />
                     </div>
+
+                    <div class="flex justify-end mt-4 pt-4 border-t">
+                         <Button variant="default" size="sm" class="gap-2" onclick={() => insertDialogOpen = true} disabled={!regexPattern && !htmlCode}>
+                            <IdCard class="w-4 h-4" />
+                            插入到角色卡...
+                        </Button>
+                    </div>
                 </Tabs.Content>
             </Tabs.Root>
         </div>
@@ -972,6 +1178,11 @@ ${info.outerHTML}`;
         </Dialog.Footer>
     </Dialog.Content>
 </Dialog.Root>
+
+<InsertToCardDialog 
+    bind:open={insertDialogOpen}
+    onConfirm={handleInsertToCard}
+/>
 
 <!-- 样式库 Sheet -->
 <Sheet.Root bind:open={libraryOpen}>
