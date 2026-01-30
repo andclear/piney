@@ -275,13 +275,13 @@
                                 </li>
                                 <li class="group">
                                     <span class="font-medium text-foreground group-hover:text-primary transition-colors">@随风飘逸</span>
-                                    <Badge variant="outline" class="text-[10px] h-4">肘击我</Badge>
+                                    <Badge variant="outline" class="text-[10px] h-4">竟肘击我</Badge>
                                     <p class="text-xs text-muted-foreground mt-1 leading-relaxed">因为随风的肘击，于是有了聊天记录的“随风模式”和“图库”功能。</p>
                                 </li>
                                 <li class="group">
                                     <span class="font-medium text-foreground group-hover:text-primary transition-colors">@薯片</span>
                                     <Badge variant="outline" class="text-[10px] h-4">模板提供</Badge>
-                                    <p class="text-xs text-muted-foreground mt-1 leading-relaxed">感谢薯片提供的角色卡写卡模板。</p>
+                                    <p class="text-xs text-muted-foreground mt-1 leading-relaxed">感谢薯片提供的角色卡写卡模板，非常好用。</p>
                                 </li>
                             </ul>
                         </div>
