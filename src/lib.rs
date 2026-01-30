@@ -14,7 +14,7 @@ pub mod utils;
 use axum::{extract::DefaultBodyLimit, middleware, routing::get, Router};
 use config::ConfigState;
 use sea_orm::DatabaseConnection;
-use tower_http::compression::CompressionLayer;
+
 use tower_http::cors::{Any, CorsLayer};
 use utils::mode_detect::RunMode;
 
@@ -42,7 +42,6 @@ pub async fn create_app(db: DatabaseConnection, mode: RunMode, config: ConfigSta
     let mut app = Router::new()
         .nest("/api", public_api.merge(protected_api))
         .layer(cors)
-        .layer(CompressionLayer::new())
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)); // 100MB 文件大小限制
 
     // Serve uploaded files

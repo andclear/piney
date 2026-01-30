@@ -11,11 +11,12 @@ use axum::{
 };
 use chrono::Local;
 use flate2::read::GzDecoder;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tar::{Archive, Builder};
+use tokio::io::duplex;
+use tokio_util::io::{ReaderStream, SyncIoBridge}; // 用于流式传输
+use tracing::error;
 
 #[derive(Serialize)]
 pub struct ImportResponse {
@@ -33,7 +34,7 @@ fn get_data_dir() -> std::path::PathBuf {
     crate::utils::paths::get_data_path("")
 }
 
-/// GET /api/backup/export - 导出系统数据为 .piney 文件
+/// GET /api/backup/export - 导出系统数据为 .piney 文件 (流式传输)
 pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> {
     let data_dir = get_data_dir();
 
@@ -41,103 +42,72 @@ pub async fn export_backup() -> Result<impl IntoResponse, (StatusCode, String)> 
         return Err((StatusCode::NOT_FOUND, "数据目录不存在".to_string()));
     }
 
-    // 1. 创建临时目录 data/temp
-    let temp_dir = data_dir.join("temp");
-    if !temp_dir.exists() {
-        fs::create_dir_all(&temp_dir).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("无法创建临时目录: {}", e),
-            )
-        })?;
-    }
+    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+    let filename = format!("piney_backup_{}.piney", timestamp);
 
-    // 2. 清理超过 1 小时的旧临时文件
-    let _ = tokio::task::spawn_blocking({
-        let temp_dir = temp_dir.clone();
-        move || {
-            if let Ok(entries) = fs::read_dir(temp_dir) {
+    // 1. 创建内存管道 (4MB 缓冲区，优化 200MB/s+ 高速下载体验)
+    // reader 给 Axum 返回给前端作为 Response Body
+    // writer 给 tar::Builder 写入数据
+    let (reader, writer) = duplex(4 * 1024 * 1024);
+
+    let data_dir_clone = data_dir.clone();
+
+    // 2. 启动后台任务进行打包
+    // 使用 SyncIoBridge 将 异步writer 转换为 同步write，供同步的 tar 库使用
+    // spawn_blocking 在专用线程池运行，不会阻塞因为 heavy I/O
+    tokio::task::spawn_blocking(move || {
+        // SyncIoBridge 会在 drop 时关闭 writer，从而给 reader 发送 EOF
+        let bridge = SyncIoBridge::new(writer);
+        // 关键优化：使用 BufWriter 减少 tar 的大量小 I/O (?512bytes) 操作导致的频繁 context switch
+        // 4MB 缓冲区与 pipe 容量一致，最大化吞吐量
+        let buffered_bridge = std::io::BufWriter::with_capacity(4 * 1024 * 1024, bridge);
+        let mut tar_builder = Builder::new(buffered_bridge);
+
+        // 使用闭包来捕获 Result，方便统一处理错误
+        let result = (|| -> Result<(), String> {
+            if let Ok(entries) = fs::read_dir(&data_dir_clone) {
                 for entry in entries.flatten() {
-                    // 激进清理：每次导出前，清空 temp 目录下的所有文件
-                    // 目录里永远只会有当前这一个备份文件
-                    let _ = fs::remove_file(entry.path());
+                    let path = entry.path();
+                    // 忽略 temp 目录（虽然新版不再创建 temp 文件，但防御性编程保留）
+                    if path.file_name().and_then(|n| n.to_str()) == Some("temp") {
+                        continue;
+                    }
+
+                    // 计算相对路径
+                    let relative_path = path
+                        .strip_prefix(&data_dir_clone)
+                        .map_err(|e| format!("路径错误: {}", e))?;
+
+                    // 写入 tar
+                    if path.is_dir() {
+                        tar_builder
+                            .append_dir_all(relative_path, &path)
+                            .map_err(|e| format!("打包目录失败 {:?}: {}", path, e))?;
+                    } else {
+                        tar_builder
+                            .append_path_with_name(&path, relative_path)
+                            .map_err(|e| format!("打包文件失败 {:?}: {}", path, e))?;
+                    }
                 }
             }
+
+            // 完成打包
+            tar_builder
+                .finish()
+                .map_err(|e| format!("Tar finish failed: {}", e))?;
+
+            Ok(())
+        })();
+
+        if let Err(e) = result {
+            // 在流传输过程中发生错误，只能记录日志，无法修改 HTTP 状态码
+            error!("备份打包流式传输失败: {}", e);
         }
     });
 
-    // 3. 生成临时文件路径
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("piney_backup_{}.piney", timestamp);
-    let temp_filepath = temp_dir.join(&filename);
-
-    // 4. 将 tar.gz 写入临时文件
-    let temp_filepath_clone = temp_filepath.clone();
-    let data_dir_clone = data_dir.clone();
-
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
-        // 创建文件
-        let file = fs::File::create(&temp_filepath_clone)
-            .map_err(|e| format!("无法创建临时文件: {}", e))?;
-
-        // Gzip 编码器
-        let encoder = GzEncoder::new(file, Compression::default());
-        let mut tar_builder = Builder::new(encoder);
-
-        // 递归添加 data 目录下的所有文件
-        // 排除 temp 目录本身，防止递归死循环
-        if let Ok(entries) = fs::read_dir(&data_dir_clone) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.file_name().and_then(|n| n.to_str()) == Some("temp") {
-                    continue;
-                }
-
-                // 计算相对路径
-                let relative_path = path
-                    .strip_prefix(&data_dir_clone)
-                    .map_err(|e| format!("路径错误: {}", e))?;
-
-                if path.is_dir() {
-                    tar_builder
-                        .append_dir_all(relative_path, &path)
-                        .map_err(|e| format!("打包目录失败 {:?}: {}", path, e))?;
-                } else {
-                    tar_builder
-                        .append_path_with_name(&path, relative_path)
-                        .map_err(|e| format!("打包文件失败 {:?}: {}", path, e))?;
-                }
-            }
-        }
-
-        // 完成写入
-        let encoder = tar_builder
-            .into_inner()
-            .map_err(|e| format!("Tar finalize failed: {}", e))?;
-        encoder
-            .finish()
-            .map_err(|e| format!("Gzip finish failed: {}", e))?;
-
-        Ok(())
-    })
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("任务执行失败: {}", e),
-        )
-    })?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    // 5. 打开文件并流式返回
-    let file = tokio::fs::File::open(&temp_filepath).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("无法读取临时文件: {}", e),
-        )
-    })?;
-
-    let stream = tokio_util::io::ReaderStream::new(file);
+    // 3. 构建响应流
+    // 使用 ReaderStream 将 AsyncRead 转换为 Stream
+    let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
 
     // 构建响应头
@@ -176,13 +146,19 @@ pub async fn import_backup(
 
     let data = file_data.ok_or((StatusCode::BAD_REQUEST, "未找到备份文件".to_string()))?;
 
-    // 2. 验证是否为有效的 tar.gz
+    // 2. 验证是否为有效的备份文件 (Tar 或 TarGz)
     let is_valid = {
         let data_clone = data.clone();
         tokio::task::spawn_blocking(move || {
+            // 尝试当作 Tar 读取
+            let mut archive = Archive::new(&data_clone[..]);
+            if archive.entries().is_ok() {
+                return true;
+            }
+
+            // 尝试当作 Gzip 读取
             let decoder = GzDecoder::new(&data_clone[..]);
             let mut archive = Archive::new(decoder);
-            // 尝试读取条目来验证
             archive.entries().is_ok()
         })
         .await
@@ -225,12 +201,22 @@ pub async fn import_backup(
         }
 
         // B. 解压备份到 data 目录
-        let decoder = GzDecoder::new(&data_clone[..]);
-        let mut archive = Archive::new(decoder);
+        // 尝试自动检测格式：如果读取前两个字节是 Gzip 头 (0x1f 0x8b)，则使用 Gzip 解压
+        // 否则当作普通 Tar 文件处理
+        let is_gzip = data_clone.len() >= 2 && data_clone[0] == 0x1f && data_clone[1] == 0x8b;
 
-        archive
-            .unpack(&data_dir_clone)
-            .map_err(|e| format!("解压失败: {}", e))?;
+        if is_gzip {
+            let decoder = GzDecoder::new(&data_clone[..]);
+            let mut archive = Archive::new(decoder);
+            archive
+                .unpack(&data_dir_clone)
+                .map_err(|e| format!("Gzip解压失败: {}", e))?;
+        } else {
+            let mut archive = Archive::new(&data_clone[..]);
+            archive
+                .unpack(&data_dir_clone)
+                .map_err(|e| format!("Tar解压失败: {}", e))?;
+        }
 
         // C. 读取恢复后的 config.yml 中的用户名
         let config_path = data_dir_clone.join("config.yml");

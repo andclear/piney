@@ -24,9 +24,11 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 
-/// 创建 API 路由 (Protected)
 pub fn routes(db: DatabaseConnection) -> Router {
-    Router::new()
+    use tower_http::compression::CompressionLayer;
+
+    // 1. 需要压缩的路由（大部分 JSON API）
+    let compressed_routes = Router::new()
         // 设置
         .route("/settings", patch(settings::update))
         // 仪表盘
@@ -158,8 +160,7 @@ pub fn routes(db: DatabaseConnection) -> Router {
             "/ai/doctor/history/item/{id}",
             delete(ai::doctor_history_delete),
         )
-        // 数据备份
-        .route("/backup/export", get(backup::export_backup))
+        // 备份导入 (POST) 可以压缩响应? 一般 response 只是 text msg，压不压无所谓
         .route("/backup/import", post(backup::import_backup))
         // 小剧场
         .route(
@@ -187,5 +188,12 @@ pub fn routes(db: DatabaseConnection) -> Router {
                 .put(frontend_style::update_style)
                 .delete(frontend_style::delete_style),
         )
-        .with_state(db)
+        // 核心：应用压缩层
+        .layer(CompressionLayer::new());
+
+    // 2. 不需要压缩的路由 (流式传输)
+    let streaming_routes = Router::new().route("/backup/export", get(backup::export_backup));
+
+    // 3. 合并路由
+    compressed_routes.merge(streaming_routes).with_state(db)
 }

@@ -26,41 +26,38 @@
         
         try {
             const token = localStorage.getItem("auth_token");
+            if (!token) {
+                toast.error("未登录");
+                isExporting = false;
+                toast.dismiss(loadingToast);
+                return;
+            }
+
+            // 直接通过浏览器导航触发下载（流式传输关键）
+            // 附带 token 作为 query param 进行鉴权
+            const downloadUrl = `${API_BASE}/api/backup/export?token=${encodeURIComponent(token)}`;
+            
+            // 创建隐藏的 a 标签点击下载
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = "piney_backup.piney"; // 浏览器会优先使用 Content-Disposition 中的文件名，这里只是 fallback
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // 给予一点延迟提示完成，实际上浏览器已经接管下载
+            setTimeout(() => {
+                toast.dismiss(loadingToast);
+                toast.success("请求已发送，下载即将开始");
+                isExporting = false;
+            }, 1000);
+
+            /* fetch 方式会导致 buffering，废弃
             const res = await fetch(`${API_BASE}/api/backup/export`, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
-            
-            if (res.ok) {
-                // 获取文件名
-                const contentDisposition = res.headers.get("content-disposition");
-                let filename = "piney_backup.piney";
-                if (contentDisposition) {
-                    const match = contentDisposition.match(/filename="(.+)"/);
-                    if (match) filename = match[1];
-                }
-                
-                // 下载文件
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                
-                toast.dismiss(loadingToast);
-                toast.success("导出成功！文件已开始下载");
-            } else {
-                const text = await res.text();
-                toast.dismiss(loadingToast);
-                toast.error(`导出失败: ${text}`);
-            }
-        } catch (e) {
-            console.error(e);
-            toast.dismiss(loadingToast);
-            toast.error("导出失败：网络错误");
+            ...
+            */
         } finally {
             isExporting = false;
         }

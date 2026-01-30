@@ -232,7 +232,7 @@
                         </div>
                         
                         <h2 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent mb-2">小兄许 / Piney</h2>
-                        <Badge variant="secondary" class="font-mono text-xs px-2 py-0.5 border-primary/20">0.2.3 版本</Badge>
+                        <Badge variant="secondary" class="font-mono text-xs px-2 py-0.5 border-primary/20">0.2.4 版本</Badge>
                     </div>
 
                     <!-- Description -->

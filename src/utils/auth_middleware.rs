@@ -15,18 +15,32 @@ pub async fn auth(
     mut req: Request<Body>,
     next: Next,
 ) -> Result<impl IntoResponse, StatusCode> {
-    // 1. 获取 Authorization header
-    let auth_header = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|header| header.to_str().ok())
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    // 1. 获取 Authorization header 或 query param
+    let mut token: Option<String> = None;
 
-    // 2. 解析 Bearer token
-    if !auth_header.starts_with("Bearer ") {
-        return Err(StatusCode::UNAUTHORIZED);
+    // A. 尝试 Header
+    if let Some(auth_layout) = req.headers().get(header::AUTHORIZATION) {
+        if let Ok(auth_str) = auth_layout.to_str() {
+            if auth_str.starts_with("Bearer ") {
+                token = Some(auth_str[7..].to_string());
+            }
+        }
     }
-    let token = &auth_header[7..];
+
+    // B. 如果 Header 没有，尝试 Query Param (用于文件下载等浏览器原生请求)
+    if token.is_none() {
+        if let Some(query) = req.uri().query() {
+            if let Ok(params) =
+                serde_urlencoded::from_str::<std::collections::HashMap<String, String>>(query)
+            {
+                if let Some(t) = params.get("token") {
+                    token = Some(t.clone());
+                }
+            }
+        }
+    }
+
+    let token = token.ok_or(StatusCode::UNAUTHORIZED)?;
 
     // 3. 获取 Config 中的 secret (确保已初始化)
     if !config.is_initialized() {
@@ -35,7 +49,7 @@ pub async fn auth(
 
     // 4. 验证 Token
     let token_data = decode::<Claims>(
-        token,
+        &token,
         &DecodingKey::from_secret(config.get_jwt_secret().as_bytes()),
         &Validation::default(),
     )

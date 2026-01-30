@@ -15,7 +15,7 @@ repository = "https://github.com/piney/piney"
 [workspace.dependencies]
 # 异步运行时
 tokio = { version = "1.41", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
+tokio-util = { version = "0.7", features = ["io", "io-util", "compat"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 # Web 框架
@@ -74,7 +74,7 @@ path = "src/main.rs"
 
 [dependencies]
 tokio.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = ["io"] }
 axum.workspace = true
 tower.workspace = true
 tower-http.workspace = true
@@ -108,3 +108,4 @@ once_cell = "1.21.3"
 zip = "2.2"
 tar = "0.4.44"
 urlencoding = "2.1.3"
+serde_urlencoded = "0.7"
