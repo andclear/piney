@@ -27,6 +27,7 @@
     import { api } from "$lib/api";
     import { onMount } from "svelte";
     import { toast } from "svelte-sonner";
+    import { breadcrumbs } from "$lib/stores/breadcrumb";
     import ChannelDialog from "$lib/components/settings/channel-dialog.svelte";
     import {
         Select,
@@ -70,6 +71,9 @@
 
     // Initial Load
     onMount(async () => {
+        breadcrumbs.set([
+            { label: '设置' }
+        ]);
         await Promise.all([loadChannels(), loadSettings()]);
     });
 

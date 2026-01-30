@@ -859,43 +859,82 @@
                     <div class="flex flex-col md:flex-row gap-8 items-start">
                         <!-- Left Column: Cover & Actions -->
                         <div
-                            class="flex-shrink-0 w-40 mx-auto md:mx-0 space-y-4"
+                            class="flex-shrink-0 w-full md:w-40 mx-auto md:mx-0 space-y-4"
                         >
-                            <div
-                                class="aspect-[2/3] w-full rounded-xl overflow-hidden border bg-muted shadow-sm relative group"
-                            >
-                                <img
-                                    src={resolveUrl(`${card.avatar || "/default.webp"}?t=${avatarKey}`)}
-                                    alt="封面"
-                                    class={cn(
-                                        "w-full h-full object-cover transition-transform duration-500 group-hover:scale-105",
-                                        card.cover_blur && "blur-xl",
-                                    )}
-                                />
-                                <!-- Cover Overlay -->
+                            <!-- Mobile: Cover + Token Stats Side by Side -->
+                            <!-- Mobile: Cover + Token Stats Side by Side (Use Grid for height sync) -->
+                            <div class="grid grid-cols-[62%_34%] gap-3 md:block">
+                                <!-- Cover Image -->
                                 <div
-                                    class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 text-white"
+                                    class="aspect-[2/3] md:w-full rounded-xl overflow-hidden border bg-muted shadow-sm relative group"
                                 >
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        class="bg-transparent text-white border-white hover:bg-white hover:text-black h-8 text-xs"
-                                        onclick={() => coverInput.click()}
-                                    >
-                                        <Upload class="mr-2 h-3 w-3" /> 更换封面
-                                    </Button>
-                                    <input
-                                        type="file"
-                                        bind:this={coverInput}
-                                        onchange={handleCoverUpload}
-                                        accept="image/*"
-                                        class="hidden"
+                                    <img
+                                        src={resolveUrl(`${card.avatar || "/default.webp"}?t=${avatarKey}`)}
+                                        alt="封面"
+                                        class={cn(
+                                            "w-full h-full object-cover transition-transform duration-500 group-hover:scale-105",
+                                            card.cover_blur && "blur-xl",
+                                        )}
                                     />
-                                    <p class="text-[10px] opacity-80">
-                                        512x768
-                                    </p>
+                                    <!-- Cover Overlay -->
+                                    <div
+                                        class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 text-white"
+                                    >
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            class="bg-transparent text-white border-white hover:bg-white hover:text-black h-8 text-xs"
+                                            onclick={() => coverInput.click()}
+                                        >
+                                            <Upload class="mr-2 h-3 w-3" /> 更换封面
+                                        </Button>
+                                        <input
+                                            type="file"
+                                            bind:this={coverInput}
+                                            onchange={handleCoverUpload}
+                                            accept="image/*"
+                                            class="hidden"
+                                        />
+                                        <p class="text-[10px] opacity-80">
+                                            512x768
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Token Stats: Mobile = right of cover (1 col), Desktop = hidden -->
+                                <div
+                                    class="flex flex-col gap-2 md:hidden"
+                                >
+                                    {@render ReviewStat({
+                                        label: "总 Token",
+                                        value: card.token_count_total ?? '-',
+                                        compact: true,
+                                        className: "flex-1"
+                                    })}
+                                    {@render ReviewStat({
+                                        label: "设定",
+                                        value: card.token_count_spec ?? '-',
+                                        compact: true,
+                                        color: "text-blue-500",
+                                        className: "flex-1"
+                                    })}
+                                    {@render ReviewStat({
+                                        label: "世界书",
+                                        value: card.token_count_wb ?? '-',
+                                        compact: true,
+                                        color: "text-purple-500",
+                                        className: "flex-1"
+                                    })}
+                                    {@render ReviewStat({
+                                        label: "其他",
+                                        value: card.token_count_other ?? '-',
+                                        compact: true,
+                                        color: "text-muted-foreground",
+                                        className: "flex-1"
+                                    })}
                                 </div>
                             </div>
+                            
                             <Button
                                 class="w-full"
                                 variant="outline"
@@ -913,9 +952,9 @@
                                 <Trash2 class="mr-2 h-4 w-4" /> 删除卡片
                             </Button>
 
-                            <!-- Token Stats (Moved to Left) -->
+                            <!-- Token Stats: Desktop Only (below buttons) -->
                             <div
-                                class="grid grid-cols-2 md:grid-cols-1 gap-2 pt-2"
+                                class="hidden md:grid grid-cols-1 gap-2 pt-2"
                             >
                                 {@render ReviewStat({
                                     label: "总 Token",
@@ -1686,30 +1725,32 @@
     value,
     compact = false,
     color,
+    className = "",
 }: {
     label: string;
     value: string | number;
     compact?: boolean;
     color?: string;
+    className?: string;
 })}
-    <div class={cn("rounded-lg border bg-card", compact ? "p-3" : "p-4")}>
+    <div class={cn("rounded-lg border bg-card flex flex-col justify-center", compact ? "p-3" : "p-4", className)}>
         <div class="text-[10px] text-muted-foreground mb-0.5">{label}</div>
         <div class={cn("font-mono font-bold", compact ? "text-sm" : "text-xl", color)}>
             {value}
-        
-    <!-- Cropper Dialog -->
-    <ImageCropperDialog 
-        bind:open={showCropper} 
-        imageSrc={cropperImageSrc} 
-        on:confirm={handleCropConfirm} 
-    />
-
-    <!-- Doctor Dialog -->
-    <DoctorDialog
-        bind:open={showDoctorDialog}
-        cardId={cardId}
-        onClose={() => (showDoctorDialog = false)}
-    />
-</div>
+        </div>
     </div>
 {/snippet}
+
+<!-- Cropper Dialog -->
+<ImageCropperDialog 
+    bind:open={showCropper} 
+    imageSrc={cropperImageSrc} 
+    on:confirm={handleCropConfirm} 
+/>
+
+<!-- Doctor Dialog -->
+<DoctorDialog
+    bind:open={showDoctorDialog}
+    cardId={cardId}
+    onClose={() => (showDoctorDialog = false)}
+/>

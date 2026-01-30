@@ -24,7 +24,7 @@
                             {#if i > 0}
                                 <Breadcrumb.Separator class="hidden md:block" />
                             {/if}
-                            <Breadcrumb.Item class="hidden md:block">
+                            <Breadcrumb.Item class={i < $breadcrumbs.length - 1 ? "hidden md:block" : ""}>
                                 {#if item.href && i < $breadcrumbs.length - 1}
                                     <Breadcrumb.Link href={item.href}
                                         >{item.label}</Breadcrumb.Link

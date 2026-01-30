@@ -7,6 +7,8 @@
     import { toast } from "svelte-sonner";
     import { cn } from "$lib/utils";
     import { API_BASE } from "$lib/api";
+    import { onMount } from "svelte";
+    import { breadcrumbs } from "$lib/stores/breadcrumb";
 
     let activeTab = "export";
     let isRestoreDialogOpen = false;
@@ -140,6 +142,12 @@
         selectedFile = null;
         if (fileInput) fileInput.value = "";
     }
+
+    onMount(() => {
+        breadcrumbs.set([
+            { label: '数据备份' }
+        ]);
+    });
 </script>
 
 <div class="container py-8 space-y-8 max-w-4xl mx-auto">

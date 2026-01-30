@@ -11,6 +11,7 @@
     import * as AlertDialog from "$lib/components/ui/alert-dialog/index.js";
     import { cn } from "$lib/utils.js";
     import { API_BASE, resolveUrl } from "$lib/api";
+    import { breadcrumbs } from "$lib/stores/breadcrumb";
 
     // defined locally to avoid dependency issues, or import if available
     interface DeletedCard {
@@ -177,6 +178,9 @@
     }
 
     onMount(() => {
+        breadcrumbs.set([
+            { label: '回收站' }
+        ]);
         fetchDeletedCards();
     });
 </script>

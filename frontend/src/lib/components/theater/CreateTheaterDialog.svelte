@@ -121,41 +121,34 @@
                     <Popover.Trigger asChild>
                         {#snippet child({ props })}
                             <Button variant="outline" class="w-full justify-start" {...props}>
-                                {category || "选择或输入分类..."}
+                                {category || "选择分类..."}
                             </Button>
                         {/snippet}
                     </Popover.Trigger>
-                    <Popover.Content class="w-[300px] p-0" align="start">
-                        <Command.Root>
-                            <Command.Input 
-                                placeholder="搜索或输入新分类..." 
+                    <Popover.Content class="w-[300px] p-2" align="start">
+                        <div class="pb-2 mb-2 border-b">
+                            <Input 
+                                placeholder="输入新分类名..." 
                                 bind:value={category}
+                                class="h-8 text-sm"
                             />
-                            <Command.List>
-                                <Command.Empty>
-                                    {#if category.trim()}
-                                        <button 
-                                            class="w-full px-4 py-2 text-left text-sm hover:bg-accent"
-                                            onclick={() => { categoryOpen = false; }}
-                                        >
-                                            创建分类 "{category}"
-                                        </button>
-                                    {:else}
-                                        暂无分类
+                        </div>
+                        <div class="space-y-1 max-h-[200px] overflow-y-auto">
+                            {#each categories as cat}
+                                <button
+                                    class="w-full px-3 py-2 text-left text-sm rounded-md hover:bg-accent flex items-center justify-between"
+                                    onclick={() => { category = cat; categoryOpen = false; }}
+                                >
+                                    <span>{cat}</span>
+                                    {#if category === cat}
+                                        <span class="text-primary">✓</span>
                                     {/if}
-                                </Command.Empty>
-                                <Command.Group heading="已有分类">
-                                    {#each categories as cat}
-                                        <Command.Item 
-                                            value={cat}
-                                            onSelect={() => { category = cat; categoryOpen = false; }}
-                                        >
-                                            {cat}
-                                        </Command.Item>
-                                    {/each}
-                                </Command.Group>
-                            </Command.List>
-                        </Command.Root>
+                                </button>
+                            {/each}
+                            {#if categories.length === 0}
+                                <div class="px-3 py-2 text-sm text-muted-foreground">暂无分类</div>
+                            {/if}
+                        </div>
                     </Popover.Content>
                 </Popover.Root>
                 <p class="text-xs text-muted-foreground">留空则使用"未分类"</p>

@@ -33,7 +33,6 @@
     // 设置面包屑导航
     onMount(() => {
         breadcrumbs.set([
-            { label: 'AI 实验室', href: '/ai' },
             { label: '皮皮美化工作台' }
         ]);
     });

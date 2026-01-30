@@ -24,6 +24,7 @@
     import { cn } from "$lib/utils";
     import { API_BASE } from "$lib/api";
     import { Progress } from "$lib/components/ui/progress";
+    import { breadcrumbs } from "$lib/stores/breadcrumb";
 
     let dragging = false;
     let uploading = false;
@@ -36,6 +37,10 @@
     let importType = "card";
 
     onMount(() => {
+        breadcrumbs.set([
+            { label: '导入数据' }
+        ]);
+
         const tab = $page.url.searchParams.get("tab");
         if (tab === "worldbook") {
             importType = "worldbook";

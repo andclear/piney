@@ -102,11 +102,20 @@
     let newCategoryName = $state("");
     let editingCategory: Category | null = $state(null);
 
-    // 分页
+    // 分页 & 无限滚动
     let currentPage = $state(1);
-    let pageSize = $state(30);
+    let pageSize = $state(50);
     let totalItems = $state(0);
     let totalPages = $state(0);
+    let hasMore = $state(true);
+    let isLoadingMore = $state(false);
+    
+    // 缓存: key = filter组合, value = 已加载的图片和分页信息
+    let imageCache = new Map<string, { items: ImageItem[], total: number, loadedPages: number }>();
+    
+    function getCacheKey(): string {
+        return `${selectedCategoryId || 'all'}_${searchQuery}_${selectedColor || 'all'}_${filterIsFavorite}`;
+    }
 
     // 编辑对话框
     let editDialogOpen = $state(false);
@@ -165,8 +174,23 @@
     });
 
 
-    async function fetchImages() {
+    async function fetchImages(append: boolean = false) {
+        if (isLoadingMore) return;
+        
+        const cacheKey = getCacheKey();
+        
+        // 如果不是追加模式，检查缓存
+        if (!append && imageCache.has(cacheKey)) {
+            const cached = imageCache.get(cacheKey)!;
+            images = cached.items;
+            totalItems = cached.total;
+            currentPage = cached.loadedPages;
+            hasMore = cached.items.length < cached.total;
+            return;
+        }
+        
         try {
+            isLoadingMore = true;
             const token = localStorage.getItem("auth_token");
             let url = `${API_BASE}/api/images`;
             const params = new URLSearchParams();
@@ -188,13 +212,45 @@
             });
             if (res.ok) {
                 const data = await res.json();
-                images = data.items || [];
+                const newItems = data.items || [];
+                
+                if (append) {
+                    images = [...images, ...newItems];
+                } else {
+                    images = newItems;
+                }
+                
                 totalItems = data.total || 0;
                 totalPages = data.total_pages || 1;
+                hasMore = currentPage < totalPages;
+                
+                // 更新缓存
+                imageCache.set(cacheKey, {
+                    items: images,
+                    total: totalItems,
+                    loadedPages: currentPage
+                });
             }
         } catch (e) {
             console.error("获取图片失败", e);
+        } finally {
+            isLoadingMore = false;
         }
+    }
+    
+    // 加载更多
+    async function loadMore() {
+        if (!hasMore || isLoadingMore) return;
+        currentPage++;
+        await fetchImages(true);
+    }
+    
+    // 重置并重新加载 (筛选条件变化时)
+    function resetAndFetch() {
+        currentPage = 1;
+        images = [];
+        hasMore = true;
+        fetchImages(false);
     }
 
     async function createCategory() {
@@ -638,15 +694,13 @@
     function selectCategory(id: string | null) {
         selectedCategoryId = id;
         filterIsFavorite = false; // 切换分类时清除收藏筛选
-        currentPage = 1;
-        fetchImages();
+        resetAndFetch();
     }
 
     function selectFavorites() {
         filterIsFavorite = true;
         selectedCategoryId = null; // 切换到收藏时清除分类选择
-        currentPage = 1;
-        fetchImages();
+        resetAndFetch();
     }
 
     function toggleImageSelection(id: string) {
@@ -682,10 +736,35 @@
     function onSearchInput() {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
-            currentPage = 1;
-            fetchImages();
+            resetAndFetch();
         }, 300);
     }
+
+    // ============ 无限滚动 ============
+    let sentinelEl: HTMLDivElement;
+    let observer: IntersectionObserver | null = null;
+    
+    $effect(() => {
+        // 当 sentinelEl 存在时设置观察者
+        if (sentinelEl && !observer) {
+            observer = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+                        loadMore();
+                    }
+                },
+                { rootMargin: '200px' }
+            );
+            observer.observe(sentinelEl);
+        }
+        
+        return () => {
+            if (observer) {
+                observer.disconnect();
+                observer = null;
+            }
+        };
+    });
 
     // ============ 生命周期 ============
     onMount(async () => {
@@ -1002,6 +1081,18 @@
                     {/each}
                 </div>
             {/each}
+        </div>
+
+        <!-- 无限滚动哨兵 & 加载指示器 -->
+        <div bind:this={sentinelEl} class="w-full py-8 flex justify-center">
+            {#if isLoadingMore}
+                <div class="flex items-center gap-2 text-muted-foreground">
+                    <div class="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full"></div>
+                    <span>加载中...</span>
+                </div>
+            {:else if !hasMore && images.length > 0}
+                <span class="text-muted-foreground text-sm">已加载全部 {totalItems} 张图片</span>
+            {/if}
         </div>
 
         <!-- 移动分类对话框 -->
