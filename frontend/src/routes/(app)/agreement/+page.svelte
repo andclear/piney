@@ -16,7 +16,7 @@
     import { auth } from "$lib/stores/auth.svelte";
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
-    import { breadcrumbs } from "$lib/stores/breadcrumbs.svelte";
+    import { breadcrumbs } from "$lib/stores/breadcrumb";
 
     let timeLeft = $state(10);
     let hasScrolledToBottom = $state(false);
