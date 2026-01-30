@@ -4,6 +4,7 @@
 	import Upload from "@lucide/svelte/icons/upload";
 	import Dna from "@lucide/svelte/icons/dna";
 	import BookUser from "@lucide/svelte/icons/book-user";
+	import Images from "@lucide/svelte/icons/images";
 	import DatabaseBackup from "@lucide/svelte/icons/database-backup";
 	import Settings from "@lucide/svelte/icons/settings";
 	import BookPlus from "@lucide/svelte/icons/book-plus";
@@ -31,6 +32,7 @@
 			{ title: "角色库", url: "/characters", icon: IdCard },
 			{ title: "小剧场", url: "/theaters", icon: Drama },
 			{ title: "全局世界书", url: "/worldinfo", icon: BookUser },
+			{ title: "图库", url: "/gallery", icon: Images },
 			{ title: "导入", url: "/import", icon: Upload },
 		],
 		// Group 2: AI 实验室

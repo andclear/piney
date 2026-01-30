@@ -22,6 +22,8 @@ mod m20260122_000001_add_dashboard_indices;
 mod m20260124_000001_create_quick_replies;
 mod m20260124_000002_create_theaters;
 mod m20260129_000001_create_frontend_styles;
+mod m20260130_000001_create_image_categories;
+mod m20260130_000002_create_images;
 
 pub struct Migrator;
 
@@ -49,6 +51,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260124_000001_create_quick_replies::Migration),
             Box::new(m20260124_000002_create_theaters::Migration),
             Box::new(m20260129_000001_create_frontend_styles::Migration),
+            Box::new(m20260130_000001_create_image_categories::Migration),
+            Box::new(m20260130_000002_create_images::Migration),
         ]
     }
 }

@@ -9,6 +9,8 @@ pub mod categories;
 pub mod dashboard;
 pub mod frontend_style;
 pub mod history;
+pub mod image_categories;
+pub mod images;
 pub mod quick_reply;
 pub mod settings;
 pub mod theater;
@@ -103,6 +105,29 @@ pub fn routes(db: DatabaseConnection) -> Router {
             "/categories/{id}",
             patch(categories::update).delete(categories::delete),
         )
+        // 图库分类
+        .route(
+            "/image-categories",
+            get(image_categories::list).post(image_categories::create),
+        )
+        .route("/image-categories/reorder", put(image_categories::reorder))
+        .route(
+            "/image-categories/{id}",
+            patch(image_categories::update).delete(image_categories::delete),
+        )
+        // 图库
+        .route("/images", get(images::list).post(images::import))
+        .route("/images/batch/delete", post(images::batch_delete))
+        .route("/images/batch/category", put(images::batch_category))
+        .route("/images/batch/update", patch(images::batch_update))
+        .route("/images/batch/export", post(images::batch_export))
+        .route(
+            "/images/{id}",
+            get(images::get)
+                .patch(images::update)
+                .delete(images::delete),
+        )
+        .route("/images/{id}/export", get(images::export))
         // 世界书
         .route("/world_info/import", post(world_info::import))
         .route("/world_info", get(world_info::list))

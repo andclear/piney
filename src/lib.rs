@@ -54,13 +54,18 @@ pub async fn create_app(db: DatabaseConnection, mode: RunMode, config: ConfigSta
         "/cards",
         tower_http::services::ServeDir::new(crate::utils::paths::get_data_path("cards")),
     );
+    // 图库图片
+    app = app.nest_service(
+        "/images",
+        tower_http::services::ServeDir::new(crate::utils::paths::get_data_path("images")),
+    );
 
     // Server Mode 下托管静态文件
     // 使用 fallback 确保 SPA 路由刷新时返回 index.html
     if mode == RunMode::Server {
         use tower_http::services::{ServeDir, ServeFile};
-        let static_dir = ServeDir::new("static")
-            .not_found_service(ServeFile::new("static/index.html"));
+        let static_dir =
+            ServeDir::new("static").not_found_service(ServeFile::new("static/index.html"));
         app = app.fallback_service(static_dir);
     }
 

@@ -19,6 +19,10 @@ export default defineConfig({
             '/cards': {
                 target: 'http://localhost:9696',
                 changeOrigin: true
+            },
+            '/images': {
+                target: 'http://localhost:9696',
+                changeOrigin: true
             }
         }
     }

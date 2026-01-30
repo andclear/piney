@@ -9,6 +9,8 @@ pub mod character_versions;
 pub mod chat_history;
 pub mod doctor_task;
 pub mod frontend_style;
+pub mod image;
+pub mod image_category;
 pub mod quick_reply;
 pub mod setting;
 pub mod theater;
@@ -22,6 +24,8 @@ pub mod prelude {
     pub use super::chat_history::Entity as ChatHistory;
     pub use super::doctor_task::Entity as DoctorTask;
     pub use super::frontend_style::Entity as FrontendStyle;
+    pub use super::image::Entity as Image;
+    pub use super::image_category::Entity as ImageCategory;
     pub use super::quick_reply::Entity as QuickReply;
     pub use super::setting::Entity as Setting;
     pub use super::theater::Entity as Theater;
