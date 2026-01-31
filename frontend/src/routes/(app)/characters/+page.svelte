@@ -3,6 +3,7 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { flip } from "svelte/animate";
+    import { dndzone, TRIGGERS } from "svelte-dnd-action";
     import { toast } from "svelte-sonner";
     import { cn } from "$lib/utils";
     import { Skeleton } from "$lib/components/ui/skeleton";
@@ -92,10 +93,15 @@
     let createDialogOpen = $state(false);
     let newCardName = $state("");
 
-    // 拖拽状态
-    let draggedCategoryId: string | null = $state(null);
-    let dragOverCategoryId: string | null = $state(null);
-    let dragPosition: "top" | "bottom" | null = $state(null);
+    // 拖拽状态 (svelte-dnd-action)
+    const FLIP_DURATION_MS = 200;
+    const TOUCH_DELAY_MS = 300;
+    let dndCategories: Category[] = $state([]);
+    let isCategoryDragging = $state(false);
+
+    // Prevent click after longpress
+    let isLongPressTriggered = false;
+    let categoryOrderBeforeDrag: string[] = [];
 
     // 排序状态
     let currentSort = $state("updated_at");
@@ -314,61 +320,36 @@
         }
     }
 
-    // ============ 拖拽排序 ============
-    function handleDragStart(categoryId: string) {
-        draggedCategoryId = categoryId;
-    }
-
-    function handleDragOver(e: DragEvent, targetId: string) {
-        e.preventDefault();
-        if (draggedCategoryId === targetId) return;
-
-        const el = e.currentTarget as HTMLElement;
-        const rect = el.getBoundingClientRect();
-        const mid = rect.y + rect.height / 2;
-        
-        dragOverCategoryId = targetId;
-        dragPosition = e.clientY < mid ? "top" : "bottom";
-    }
-
-    function resetDragState() {
-        draggedCategoryId = null;
-        dragOverCategoryId = null;
-        dragPosition = null;
-    }
-
-    function handleDrop(targetCategoryId: string) {
-        if (!draggedCategoryId || draggedCategoryId === targetCategoryId) {
-            resetDragState();
-            return;
+    // ============ 拖拽排序 (svelte-dnd-action) ============
+    function handleCategoryDndConsider(e: CustomEvent<{ items: Category[], info: { trigger: string } }>) {
+        if (e.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+            categoryOrderBeforeDrag = categories.map(c => c.id);
+            isCategoryDragging = true;
         }
+        dndCategories = e.detail.items;
+    }
 
-        const draggedItem = categories.find(c => c.id === draggedCategoryId);
-        if (!draggedItem) {
-            resetDragState();
-            return;
-        }
-
-        // Create new array without dragged item
-        const newCategories = categories.filter(c => c.id !== draggedCategoryId);
+    function handleCategoryDndFinalize(e: CustomEvent<{ items: Category[], info: { trigger: string } }>) {
+        isCategoryDragging = false;
+        const newOrder = e.detail.items.map(c => c.id);
+        const orderChanged = categoryOrderBeforeDrag.length > 0 && 
+            (categoryOrderBeforeDrag.length !== newOrder.length || 
+             categoryOrderBeforeDrag.some((id, i) => id !== newOrder[i]));
         
-        // Find target index in the new array
-        let targetIndex = newCategories.findIndex(c => c.id === targetCategoryId);
-        
-        if (targetIndex !== -1) {
-            // Adjust index based on position
-            if (dragPosition === 'bottom') {
-                targetIndex += 1;
-            }
-            // Insert
-            newCategories.splice(targetIndex, 0, draggedItem);
-            
-            categories = newCategories;
-            saveOrder(newCategories.map((c) => c.id));
+        if (orderChanged) {
+            categories = e.detail.items.map(item => {
+                const { isDndShadowItem, ...cleanItem } = item as any;
+                return cleanItem;
+            });
+            saveOrder(newOrder);
         }
         
-        resetDragState();
+        dndCategories = [];
+        categoryOrderBeforeDrag = [];
     }
+
+    // 用于显示的分类列表
+    let displayCategories = $derived(isCategoryDragging ? dndCategories : categories);
 
     async function saveOrder(ids: string[]) {
         try {
@@ -663,7 +644,7 @@
         <div class="space-y-1">
             <h1 class="text-2xl font-bold tracking-tight">我的角色</h1>
             <p class="text-muted-foreground">
-                管理您的 {totalItems} 个角色卡片
+                管理 {totalItems} 个角色卡
             </p>
         </div>
         <div class="flex gap-2">
@@ -910,30 +891,23 @@
                     </div>
 
                     <!-- 分类列表 -->
-                    <div class="space-y-2 max-h-60 overflow-y-auto" role="list">
-                        {#each categories as category (category.id)}
+                    <div 
+                        class="space-y-2 max-h-60 overflow-y-auto"
+                        use:dndzone={{
+                            items: displayCategories,
+                            flipDurationMs: FLIP_DURATION_MS,
+                            delayTouchStart: TOUCH_DELAY_MS,
+                            dropTargetStyle: {},
+                            type: 'char-categories'
+                        }}
+                        onconsider={handleCategoryDndConsider}
+                        onfinalize={handleCategoryDndFinalize}
+                    >
+                        {#each displayCategories as category (category.id)}
                             <div
-                                class="relative flex items-center gap-2 p-2 rounded-lg border transition-colors bg-background group"
-                                class:bg-accent={draggedCategoryId ===
-                                    category.id}
-                                class:opacity-50={draggedCategoryId === category.id}
-                                draggable="true"
-                                role="listitem"
-                                ondragstart={() => handleDragStart(category.id)}
-                                ondragover={(e) => handleDragOver(e, category.id)}
-                                ondrop={() => handleDrop(category.id)}
-                                ondragend={resetDragState}
-                                animate:flip={{ duration: 200 }}
+                                animate:flip={{ duration: FLIP_DURATION_MS }}
+                                class="flex items-center gap-2 p-2 rounded-lg border transition-colors bg-background group"
                             >
-                                {#if dragOverCategoryId === category.id && draggedCategoryId !== category.id}
-                                    <div 
-                                        class="absolute left-0 right-0 h-[2px] bg-primary z-20 pointer-events-none transition-all"
-                                        class:top-0={dragPosition === 'top'}
-                                        class:-top-[1px]={dragPosition === 'top'}
-                                        class:bottom-0={dragPosition === 'bottom'}
-                                        class:-bottom-[1px]={dragPosition === 'bottom'}
-                                    ></div>
-                                {/if}
                                 <GripVertical
                                     class="h-4 w-4 text-muted-foreground cursor-grab"
                                 />
@@ -1067,15 +1041,22 @@
                         <div
                             role="button"
                             tabindex="0"
-                            class="group relative rounded-xl overflow-hidden bg-card shadow-md hover:shadow-xl transition-all duration-200 hover:-translate-y-1 cursor-pointer"
+                            class="group relative rounded-xl overflow-hidden bg-card shadow-md hover:shadow-xl transition-all duration-200 hover:-translate-y-1 cursor-pointer select-none touch-callout-none"
+                            style="-webkit-touch-callout: none;"
                             class:ring-2={isSelectionMode &&
                                 selectedCardIds.has(card.id)}
                             class:ring-primary={isSelectionMode &&
                                 selectedCardIds.has(card.id)}
-                            onclick={() =>
+                            onclick={(e) => {
+                                if (isLongPressTriggered) {
+                                    isLongPressTriggered = false;
+                                    e.stopPropagation();
+                                    return;
+                                }
                                 isSelectionMode
                                     ? toggleCardSelection(card.id)
                                     : goto(`/characters/${card.id}`)}
+                            }
                             onkeydown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
                                     isSelectionMode
@@ -1083,8 +1064,12 @@
                                         : goto(`/characters/${card.id}`);
                                 }
                             }}
+                            oncontextmenu={(e) => e.preventDefault()}
                             use:longpress
                             onlongpress={(e) => {
+                                isLongPressTriggered = true;
+                                setTimeout(() => isLongPressTriggered = false, 1000); // Safety reset
+                                
                                 const original = e.detail.originalEvent;
                                 const touch = original.touches?.[0] || original;
                                 e.target?.dispatchEvent(
@@ -1107,7 +1092,7 @@
                                     decoding="async"
                                     loading="lazy"
                                     class={cn(
-                                        "w-full h-full object-cover transition-transform duration-300",
+                                        "w-full h-full object-cover transition-transform duration-300 pointer-events-none select-none",
                                         card.cover_blur && "blur-xl scale-110",
                                     )}
                                 />

@@ -218,7 +218,7 @@
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div class="space-y-1">
             <h1 class="text-2xl font-bold tracking-tight">小剧场</h1>
-            <p class="text-muted-foreground">管理您的 {totalItems} 个小剧场提示词</p>
+            <p class="text-muted-foreground">管理 {totalItems} 个小剧场提示词</p>
         </div>
         
         <div class="flex items-center gap-2 flex-wrap">

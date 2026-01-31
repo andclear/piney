@@ -14,7 +14,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
     const cached = cardCache.get(cardId);
     if (cached) {
         return {
-            card: cached,
+            card: JSON.parse(JSON.stringify(cached)), // Return deep copy to distinguish from cache
             fromCache: true
         };
     }
@@ -33,8 +33,8 @@ export const load: PageLoad = async ({ params, fetch }) => {
 
         const card = await res.json();
 
-        // 缓存数据
-        cardCache.set(cardId, card);
+        // 缓存数据 (Store copy to keep cache pristine)
+        cardCache.set(cardId, JSON.parse(JSON.stringify(card)));
 
         return {
             card,

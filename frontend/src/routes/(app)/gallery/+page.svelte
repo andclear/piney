@@ -31,6 +31,9 @@
         CheckSquare,
     } from "lucide-svelte";
     import { Label } from "$lib/components/ui/label";
+    import { dndzone, TRIGGERS } from "svelte-dnd-action";
+    import { flip } from "svelte/animate";
+    import { longpress } from "$lib/actions/longpress";
 
     // ============ 类型定义 ============
     interface Category {
@@ -121,10 +124,15 @@
     let editDialogOpen = $state(false);
     let editingImage: ImageDetail | null = $state(null);
 
-    // 拖拽状态
-    let draggedCategoryId: string | null = $state(null);
-    let dragOverCategoryId: string | null = $state(null);
-    let dragPosition: "top" | "bottom" | null = $state(null);
+    // 拖拽状态 (svelte-dnd-action)
+    const FLIP_DURATION_MS = 200;
+    const TOUCH_DELAY_MS = 300;
+    let dndCategories: Category[] = $state([]);
+    let isCategoryDragging = $state(false);
+    let categoryOrderBeforeDrag: string[] = [];
+
+    // Prevent click after longpress
+    let isLongPressTriggered = false;
 
     // 批量操作状态
     let isSelectionMode = $state(false);
@@ -653,49 +661,27 @@
         input.value = "";
     }
 
-    // ============ 拖拽排序 ============
-    function handleDragStart(categoryId: string) {
-        draggedCategoryId = categoryId;
+    // ============ 拖拽排序 (svelte-dnd-action) ============
+    function handleCategoryDndConsider(e: CustomEvent<{ items: Category[], info: { trigger: string } }>) {
+        if (e.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+            categoryOrderBeforeDrag = categories.map(c => c.id);
+            isCategoryDragging = true;
+        }
+        dndCategories = e.detail.items;
     }
 
-    function handleDragOver(e: DragEvent, targetId: string) {
-        e.preventDefault();
-        if (draggedCategoryId === targetId) return;
-
-        const el = e.currentTarget as HTMLElement;
-        const rect = el.getBoundingClientRect();
-        const mid = rect.y + rect.height / 2;
-
-        dragOverCategoryId = targetId;
-        dragPosition = e.clientY < mid ? "top" : "bottom";
-    }
-
-    async function handleDrop(targetCategoryId: string) {
-        if (!draggedCategoryId || draggedCategoryId === targetCategoryId) {
-            resetDragState();
-            return;
-        }
-
-        const draggedItem = categories.find(c => c.id === draggedCategoryId);
-        if (!draggedItem) {
-            resetDragState();
-            return;
-        }
-
-        // Create new array without dragged item
-        const newCategories = categories.filter(c => c.id !== draggedCategoryId);
+    async function handleCategoryDndFinalize(e: CustomEvent<{ items: Category[], info: { trigger: string } }>) {
+        isCategoryDragging = false;
+        const newOrder = e.detail.items.map(c => c.id);
+        const orderChanged = categoryOrderBeforeDrag.length > 0 && 
+            (categoryOrderBeforeDrag.length !== newOrder.length || 
+             categoryOrderBeforeDrag.some((id, i) => id !== newOrder[i]));
         
-        // Find target index in the new array
-        let targetIndex = newCategories.findIndex(c => c.id === targetCategoryId);
-        
-        if (targetIndex !== -1) {
-            // Adjust index based on position
-            if (dragPosition === 'bottom') {
-                targetIndex += 1;
-            }
-            // Insert
-            newCategories.splice(targetIndex, 0, draggedItem);
-            categories = newCategories;
+        if (orderChanged) {
+            categories = e.detail.items.map(item => {
+                const { isDndShadowItem, ...cleanItem } = item as any;
+                return cleanItem;
+            });
             
             // 保存排序
             const token = localStorage.getItem("auth_token");
@@ -705,17 +691,16 @@
                     "Content-Type": "application/json",
                     ...(token ? { Authorization: `Bearer ${token}` } : {}),
                 },
-                body: JSON.stringify({ ids: newCategories.map(c => c.id) }),
+                body: JSON.stringify({ ids: newOrder }),
             });
         }
-        resetDragState();
+        
+        dndCategories = [];
+        categoryOrderBeforeDrag = [];
     }
 
-    function resetDragState() {
-        draggedCategoryId = null;
-        dragOverCategoryId = null;
-        dragPosition = null;
-    }
+    // 用于显示的分类列表
+    let displayCategories = $derived(isCategoryDragging ? dndCategories : categories);
 
     // ============ 工具函数 ============
     function selectCategory(id: string | null) {
@@ -809,7 +794,7 @@
         <div class="space-y-1">
             <h1 class="text-2xl font-bold tracking-tight">图库</h1>
             <p class="text-muted-foreground">
-                管理您的 {totalItems} 张图片
+                管理 {totalItems} 张图片
             </p>
         </div>
         <div class="flex gap-2">
@@ -941,26 +926,23 @@
                     </div>
 
                     <!-- 分类列表 -->
-                    <div class="space-y-2 max-h-60 overflow-y-auto">
-                        {#each categories as category (category.id)}
+                    <div 
+                        class="space-y-2 max-h-60 overflow-y-auto"
+                        use:dndzone={{
+                            items: displayCategories,
+                            flipDurationMs: FLIP_DURATION_MS,
+                            delayTouchStart: TOUCH_DELAY_MS,
+                            dropTargetStyle: {},
+                            type: 'gallery-categories'
+                        }}
+                        onconsider={handleCategoryDndConsider}
+                        onfinalize={handleCategoryDndFinalize}
+                    >
+                        {#each displayCategories as category (category.id)}
                             <div
-                                class="relative flex items-center gap-2 p-2 rounded-lg border bg-background group transition-colors"
-                                class:opacity-50={draggedCategoryId === category.id}
-                                draggable="true"
-                                ondragstart={() => handleDragStart(category.id)}
-                                ondragover={(e) => handleDragOver(e, category.id)}
-                                ondrop={() => handleDrop(category.id)}
-                                ondragend={resetDragState}
+                                animate:flip={{ duration: FLIP_DURATION_MS }}
+                                class="flex items-center gap-2 p-2 rounded-lg border bg-background group transition-colors"
                             >
-                                {#if dragOverCategoryId === category.id && draggedCategoryId !== category.id}
-                                    <div 
-                                        class="absolute left-0 right-0 h-[2px] bg-primary z-20 pointer-events-none"
-                                        class:top-0={dragPosition === 'top'}
-                                        class:-top-[1px]={dragPosition === 'top'}
-                                        class:bottom-0={dragPosition === 'bottom'}
-                                        class:-bottom-[1px]={dragPosition === 'bottom'}
-                                    ></div>
-                                {/if}
                                 <GripVertical class="h-4 w-4 text-muted-foreground cursor-grab" />
                                 {#if editingCategory?.id === category.id}
                                     <Input
@@ -1023,11 +1005,37 @@
                             <ContextMenu.Trigger>
                                 <div
                                     class={cn(
-                                        "relative rounded-lg overflow-hidden cursor-pointer group break-inside-avoid",
+                                        "relative rounded-lg overflow-hidden cursor-pointer group break-inside-avoid select-none touch-callout-none",
                                         "border border-transparent hover:border-primary/50 transition-all",
                                         isSelectionMode && selectedImageIds.has(image.id) && "ring-2 ring-primary"
                                     )}
-                                    onclick={() => {
+                                    style="-webkit-touch-callout: none;"
+                                    oncontextmenu={(e) => e.preventDefault()}
+                                    use:longpress
+                                    onlongpress={(e) => {
+                                        isLongPressTriggered = true;
+                                        setTimeout(() => isLongPressTriggered = false, 1000); // Safety reset
+                                        
+                                        const original = e.detail.originalEvent;
+                                        const touch = original.touches?.[0] || original;
+                                        e.target?.dispatchEvent(
+                                            new MouseEvent("contextmenu", {
+                                                bubbles: true,
+                                                cancelable: true,
+                                                view: window,
+                                                button: 2,
+                                                clientX: touch.clientX,
+                                                clientY: touch.clientY,
+                                            }),
+                                        );
+                                    }}
+                                    onclick={(e) => {
+                                        if (isLongPressTriggered) {
+                                            isLongPressTriggered = false;
+                                            e.stopPropagation();
+                                            return;
+                                        }
+
                                         if (isSelectionMode) {
                                             toggleImageSelection(image.id);
                                         } else {
@@ -1038,7 +1046,7 @@
                                     <img
                                         src={resolveUrl(image.thumbnail_path)}
                                         alt={image.title}
-                                        class="w-full object-cover"
+                                        class="w-full object-cover pointer-events-none select-none"
                                         loading="lazy"
                                         decoding="async"
                                     />

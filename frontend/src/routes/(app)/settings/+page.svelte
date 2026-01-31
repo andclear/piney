@@ -528,33 +528,35 @@
                 <Card.Content class="space-y-6">
                     <div class="grid gap-6 md:grid-cols-2">
                         <!-- 全局 AI 模型 -->
-                        <div class="space-y-2">
+                        <!-- 全局 AI 模型 -->
+                        <div class="space-y-2 min-w-0">
                             <Label for="config-global">全局 AI 模型</Label>
                             <p class="text-xs text-muted-foreground mb-2">
                                 所有 AI 功能要使用的模型。
                             </p>
                             <Select type="single" bind:value={configGlobal}>
                                 <SelectTrigger class="w-full">
-                                    {#if configGlobal}
-                                        {@const selected = channels.find(
-                                            (c) => c.id === configGlobal,
-                                        )}
-                                        <span class="truncate">
-                                            {selected
-                                                ? `${selected.name} (${selected.model_id})`
-                                                : "选择渠道..."}
-                                        </span>
-                                    {:else}
-                                        <span class="text-muted-foreground"
-                                            >选择渠道...</span
-                                        >
-                                    {/if}
+                                    <SelectValue class="block truncate w-full">
+                                        {#if configGlobal}
+                                            {@const selected = channels.find(
+                                                (c) => c.id === configGlobal,
+                                            )}
+                                            {#if selected}
+                                                {selected.name} ({selected.model_id})
+                                            {:else}
+                                                <span class="text-muted-foreground">选择渠道...</span>
+                                            {/if}
+                                        {:else}
+                                            <span class="text-muted-foreground">选择渠道...</span>
+                                        {/if}
+                                    </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">未配置</SelectItem>
+                                    <SelectItem value="" label="未配置">未配置</SelectItem>
                                     {#each channels as c}
                                         <SelectItem
                                             value={c.id}
+                                            label={`${c.name} (${c.model_id})`}
                                             disabled={!c.is_active}
                                         >
                                             {c.name} ({c.model_id})

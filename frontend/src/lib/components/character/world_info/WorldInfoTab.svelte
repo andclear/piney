@@ -17,8 +17,20 @@
     import ExportWorldInfoDialog from "./ExportWorldInfoDialog.svelte";
     import { type CharacterBookEntry } from "$lib/worldInfoConverter";
     import { untrack } from "svelte";
+    import { dndzone, TRIGGERS } from "svelte-dnd-action";
+    import { flip } from "svelte/animate";
 
     import DirtyLabel from "$lib/components/common/DirtyLabel.svelte";
+
+    const FLIP_DURATION_MS = 200;
+    const TOUCH_DELAY_MS = 300; // 长按300ms后才能拖拽（移动端防误触）
+
+    // 拖拽专用状态（防止拖拽过程中触发脏状态）
+    let dndItems: any[] = $state([]);
+    let isDragging = $state(false);
+
+    // 当任意条目展开时禁用拖拽
+    let isDragDisabled = $derived(openEntries && Object.values(openEntries).some(v => v));
 
     let {
         data = $bindable({ character_book: { entries: [] }, extensions: {} }),
@@ -80,6 +92,14 @@
             entries = Object.values(entriesRaw);
         }
 
+        // Ensure 'id' exists for dndzone (Global uses 'uid')
+        entries = entries.map((e: any) => {
+            if (e.id === undefined && e.uid !== undefined) {
+                return { ...e, id: e.uid };
+            }
+            return e;
+        });
+
         // Default Sort by display_index / order / insertion_order
         entries.sort((a: any, b: any) => {
             if (mode === "global") {
@@ -105,9 +125,6 @@
                 (e.content || "").toLowerCase().includes(low),
         );
     });
-
-    // Drag & Drop State
-    let draggedItemIdx: number | null = $state(null);
 
     // Import/Export State
     let importDialogOpen = $state(false);
@@ -146,57 +163,62 @@
         data.character_book = { ...data.character_book }; // Trigger reactivity
         if (onChange) onChange();
     }
-    let dragOverItemIdx: number | null = $state(null);
 
-    function handleDragStart(e: DragEvent, idx: number) {
-        if (searchTerm) {
-            e.preventDefault();
-            return;
+    // Drag and Drop Logic (svelte-dnd-action)
+    // 记录拖拽前的顺序，用于判断是否真正改变了位置
+    let orderBeforeDrag: (number | string)[] = [];
+
+    function handleDndConsider(e: CustomEvent<{ items: any[], info: { trigger: string } }>) {
+        // 开始拖拽时记录原始顺序并初始化拖拽状态
+        if (e.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+            orderBeforeDrag = filteredEntries.map((ent: any) => ent.id ?? ent.uid);
+            isDragging = true;
         }
-        draggedItemIdx = idx;
-        if (e.dataTransfer) {
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.dropEffect = "move";
-            // Optional: set drag image
-        }
+        // 只更新拖拽专用状态，不触发脏检查
+        dndItems = e.detail.items;
     }
 
-    function handleDragOver(e: DragEvent, idx: number) {
-        e.preventDefault(); // allow drop
-        if (searchTerm) return;
-        dragOverItemIdx = idx;
+    function handleDndFinalize(e: CustomEvent<{ items: any[], info: { trigger: string } }>) {
+        isDragging = false;
+        const newItems = e.detail.items;
+        
+        // 只有顺序真正改变时才更新数据并触发 onChange
+        const newOrder = newItems.map((ent: any) => ent.id ?? ent.uid);
+        const orderChanged = orderBeforeDrag.length > 0 && 
+            (orderBeforeDrag.length !== newOrder.length || 
+             orderBeforeDrag.some((id, i) => id !== newOrder[i]));
+        
+        if (orderChanged) {
+            // 只有顺序改变时才同步到真实数据
+            updateEntriesFromDnd(newItems);
+            if (onChange) onChange();
+        }
+        
+        dndItems = [];
+        orderBeforeDrag = [];
     }
 
-    function handleDrop(e: DragEvent, dropIdx: number) {
-        e.preventDefault();
-        if (searchTerm || draggedItemIdx === null) return;
-
-        const currentEntries = [...filteredEntries]; // Sorted list
-        const [draggedItem] = currentEntries.splice(draggedItemIdx, 1);
-        currentEntries.splice(dropIdx, 0, draggedItem);
-
-        // Update display_index for ALL items and update main data
-        const updatedEntries = currentEntries.map((item, index) => {
+    function updateEntriesFromDnd(items: any[]) {
+        // 移除 svelte-dnd-action 添加的内部属性并更新 display_index
+        const cleanedItems = items.map((item, index) => {
+            const { isDndShadowItem, ...cleanItem } = item;
             if (mode === "global") {
-                item.displayIndex = index;
-                // item.order = index; // Optional: sync order too?
+                cleanItem.displayIndex = index;
             } else {
-                if (!item.extensions) item.extensions = {};
-                item.extensions.display_index = index;
+                if (!cleanItem.extensions) cleanItem.extensions = {};
+                cleanItem.extensions.display_index = index;
             }
-            return item;
+            return cleanItem;
         });
 
-        // Write back to data
         if (Array.isArray(data.character_book.entries)) {
             data.character_book = {
                 ...data.character_book,
-                entries: updatedEntries,
+                entries: cleanedItems,
             };
         } else {
-            // Convert Array back to Object (Map)
             const entriesMap: Record<string, any> = {};
-            updatedEntries.forEach((e) => {
+            cleanedItems.forEach((e) => {
                 const key = e.uid !== undefined ? e.uid : e.id;
                 entriesMap[key] = e;
             });
@@ -205,17 +227,10 @@
                 entries: entriesMap,
             };
         }
-
-        if (onChange) onChange();
-
-        draggedItemIdx = null;
-        dragOverItemIdx = null;
     }
 
-    function handleDragEnd() {
-        draggedItemIdx = null;
-        dragOverItemIdx = null;
-    }
+    // 获取用于显示的列表（拖拽中用 dndItems，否则用 filteredEntries）
+    let displayEntries = $derived(isDragging ? dndItems : filteredEntries);
 
     function addEntry(input?: any) {
         let initialData: any = {};
@@ -593,39 +608,7 @@
 
     <!-- Entries List -->
     <div class="space-y-4 min-h-[300px] p-4">
-        {#if filteredEntries.length > 0}
-            {#each filteredEntries as entry, index (entry.id || entry.uid)}
-                <div
-                    role="group"
-                    draggable={!searchTerm &&
-                        !openEntries[entry.id || entry.uid]}
-                    ondragstart={(e) => handleDragStart(e, index)}
-                    ondragover={(e) => handleDragOver(e, index)}
-                    ondrop={(e) => handleDrop(e, index)}
-                    ondragend={handleDragEnd}
-                    class={cn(
-                        "transition-all duration-200 relative",
-                        draggedItemIdx === index && "opacity-50 scale-95",
-                        dragOverItemIdx === index &&
-                            "border-t-2 border-primary pt-2",
-                        openEntries[entry.id || entry.uid] ? "z-20" : "z-0 hover:!z-50"
-                    )}
-                >
-                    <WorldInfoEntry
-                        {entry}
-                        {lastSaved}
-                        bind:isOpen={openEntries[entry.id || entry.uid]}
-                        onDelete={() => deleteEntry(entry.id ?? entry.uid)}
-                        {onChange}
-                        onUpdate={(mutator: (e: any) => void) => {
-                            mutator(entry);
-                            if (onChange) onChange();
-                        }}
-                        {mode}
-                    />
-                </div>
-            {/each}
-        {:else}
+        {#if filteredEntries.length === 0}
             <div
                 class="text-center py-20 text-muted-foreground border border-dashed rounded-xl"
             >
@@ -634,6 +617,94 @@
                 {:else}
                     暂无世界书条目，点击右上角添加
                 {/if}
+            </div>
+        {:else if searchTerm}
+            <!-- 搜索模式：禁用拖拽 -->
+            {#each filteredEntries as entry (entry.id || entry.uid)}
+                <div class="transition-all duration-200 relative" class:z-20={openEntries[entry.id || entry.uid]}>
+                    <WorldInfoEntry
+                        {entry}
+                        {lastSaved}
+                        bind:isOpen={openEntries[entry.id || entry.uid]}
+                        onDelete={() => deleteEntry(entry.id ?? entry.uid)}
+                        {onChange}
+                        onUpdate={(mutator: (e: any) => void) => {
+                            // 1. Mutate the visual copy (for immediate feedback)
+                            mutator(entry);
+
+                            // 2. Mutate the source of truth
+                            const targetId = entry.id ?? entry.uid;
+                            if (Array.isArray(data.character_book.entries)) {
+                                const realEntry = data.character_book.entries.find((e: any) => (e.id ?? e.uid) === targetId);
+                                if (realEntry) mutator(realEntry);
+                            } else {
+                                // Map (Global)
+                                if (data.character_book.entries[targetId]) {
+                                    mutator(data.character_book.entries[targetId]);
+                                }
+                            }
+                            
+                            // 3. Trigger Svelte Reactivity
+                            data.character_book = data.character_book;
+
+                            if (onChange) onChange();
+                        }}
+                        {mode}
+                    />
+                </div>
+            {/each}
+        {:else}
+            <!-- 正常模式：启用拖拽 -->
+            <div
+                use:dndzone={{
+                    items: displayEntries,
+                    flipDurationMs: FLIP_DURATION_MS,
+                    delayTouchStart: TOUCH_DELAY_MS,
+                    dragDisabled: isDragDisabled,
+                    dropTargetStyle: {},
+                    type: 'world-info-entries'
+                }}
+                onconsider={handleDndConsider}
+                onfinalize={handleDndFinalize}
+                class="space-y-4"
+            >
+                {#each displayEntries as entry (entry.id || entry.uid)}
+                    <div
+                        animate:flip={{ duration: FLIP_DURATION_MS }}
+                        class={cn(
+                            "transition-all duration-200 relative",
+                            entry.isDndShadowItem && "h-16 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5",
+                            !entry.isDndShadowItem && openEntries[entry.id || entry.uid] ? "z-20" : "z-0 hover:!z-50"
+                        )}
+                    >
+                        {#if !entry.isDndShadowItem}
+                            <WorldInfoEntry
+                                {entry}
+                                {lastSaved}
+                                bind:isOpen={openEntries[entry.id || entry.uid]}
+                                onDelete={() => deleteEntry(entry.id ?? entry.uid)}
+                                {onChange}
+                                onUpdate={(mutator: (e: any) => void) => {
+                                    mutator(entry);
+                                    
+                                    const targetId = entry.id ?? entry.uid;
+                                    if (Array.isArray(data.character_book.entries)) {
+                                        const realEntry = data.character_book.entries.find((e: any) => (e.id ?? e.uid) === targetId);
+                                        if (realEntry) mutator(realEntry);
+                                    } else {
+                                        if (data.character_book.entries[targetId]) {
+                                            mutator(data.character_book.entries[targetId]);
+                                        }
+                                    }
+
+                                    data.character_book = data.character_book;
+                                    if (onChange) onChange();
+                                }}
+                                {mode}
+                            />
+                        {/if}
+                    </div>
+                {/each}
             </div>
         {/if}
     </div>

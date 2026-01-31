@@ -12,6 +12,8 @@
     import { beforeNavigate, goto } from "$app/navigation";
     import * as Dialog from "$lib/components/ui/dialog";
     import { AlertTriangle } from "lucide-svelte";
+    import { dndzone, TRIGGERS } from "svelte-dnd-action";
+    import { flip } from "svelte/animate";
 
     let {
         data = $bindable({ extensions: {} }),
@@ -32,10 +34,17 @@
     });
 
     let searchTerm = $state("");
-    let draggedIndex: number | null = $state(null);
-    let dragOverItemIdx: number | null = $state(null);
     let openScripts: Record<string, boolean> = $state({});
+    const FLIP_DURATION_MS = 200;
+    const TOUCH_DELAY_MS = 300; // 长按300ms后才能拖拽（移动端防误触）
     let fileInput: HTMLInputElement;
+
+    // 拖拽专用状态（防止拖拽过程中触发脏状态）
+    let dndItems: any[] = $state([]);
+    let isDragging = $state(false);
+
+    // 当任意条目展开时禁用拖拽
+    let isDragDisabled = $derived(Object.values(openScripts).some(v => v));
 
     // --- Dirty Checking Logic ---
     let originalScripts: any = $state(null);
@@ -224,47 +233,45 @@
         toast.success("正则已删除");
     }
 
-    // Drag and Drop Logic
-    function handleDragStart(e: DragEvent, index: number) {
-        draggedIndex = index;
-        if (e.dataTransfer) {
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.dropEffect = 'move';
+    // Drag and Drop Logic (svelte-dnd-action)
+    // 记录拖拽前的顺序，用于判断是否真正改变了位置
+    let orderBeforeDrag: string[] = [];
+
+    function handleDndConsider(e: CustomEvent<{ items: any[], info: { trigger: string } }>) {
+        // 开始拖拽时记录原始顺序并初始化拖拽状态
+        if (e.detail.info.trigger === TRIGGERS.DRAG_STARTED) {
+            orderBeforeDrag = scripts.map((s: any) => s.id);
+            isDragging = true;
         }
+        // 只更新拖拽专用状态，不触发脏检查
+        dndItems = e.detail.items;
     }
 
-    function handleDragOver(e: DragEvent, index: number) {
-        e.preventDefault();
-        e.dataTransfer!.dropEffect = 'move';
+    function handleDndFinalize(e: CustomEvent<{ items: any[], info: { trigger: string } }>) {
+        isDragging = false;
         
-        if (draggedIndex === null || draggedIndex === index) return;
+        // 只有顺序真正改变时才更新数据并触发 onChange
+        const newOrder = e.detail.items.map((s: any) => s.id);
+        const orderChanged = orderBeforeDrag.length > 0 && 
+            (orderBeforeDrag.length !== newOrder.length || 
+             orderBeforeDrag.some((id, i) => id !== newOrder[i]));
         
-        dragOverItemIdx = index;
-    }
-
-    function handleDragEnd() {
-        draggedIndex = null;
-        dragOverItemIdx = null;
-    }
-
-    function handleDrop(e: DragEvent, targetIndex: number) {
-        e.preventDefault();
-        dragOverItemIdx = null;
-        if (draggedIndex === null) return;
-        if (draggedIndex === targetIndex) {
-            draggedIndex = null;
-            return;
+        if (orderChanged) {
+            // 只有顺序改变时才同步到真实数据
+            data.extensions.regex_scripts = e.detail.items.map(item => {
+                // 移除 svelte-dnd-action 添加的内部属性
+                const { isDndShadowItem, ...cleanItem } = item;
+                return cleanItem;
+            });
+            onChange();
         }
-
-        // Reorder
-        const list = [...data.extensions.regex_scripts];
-        const [removed] = list.splice(draggedIndex, 1);
-        list.splice(targetIndex, 0, removed);
         
-        data.extensions.regex_scripts = list;
-        draggedIndex = null;
-        onChange();
+        dndItems = [];
+        orderBeforeDrag = [];
     }
+
+    // 获取用于显示的列表（拖拽中用 dndItems，否则用 scripts）
+    let displayScripts = $derived(isDragging ? dndItems : scripts);
 </script>
 
 <div class="h-full flex flex-col space-y-4">
@@ -309,24 +316,12 @@
                     {:else}
                         <p>暂无正则</p>
                     {/if}
-</div>
-            {:else}
-                {#each filteredScripts as script, index (script.id)}
+                </div>
+            {:else if searchTerm}
+                <!-- 搜索模式：禁用拖拽 -->
+                {#each filteredScripts as script (script.id)}
                     {@const realIndex = scripts.findIndex((s: any) => s.id === script.id)}
-                    <div
-                        role="listitem"
-                        draggable={!searchTerm && !openScripts[script.id]} 
-                        ondragstart={(e) => handleDragStart(e, realIndex)}
-                        ondragover={(e) => handleDragOver(e, realIndex)}
-                        ondrop={(e) => handleDrop(e, realIndex)}
-                        ondragend={handleDragEnd}
-                        class={cn(
-                            "transition-all duration-200 relative", 
-                            draggedIndex === realIndex && "opacity-50 scale-95",
-                            dragOverItemIdx === realIndex && "border-t-2 border-primary pt-2",
-                            openScripts[script.id] ? "z-20" : "z-0 hover:!z-50"
-                        )}
-                    >
+                    <div class="transition-all duration-200 relative" class:z-20={openScripts[script.id]}>
                         <!-- svelte-ignore binding_property_non_reactive -->
                         <RegexItem 
                             bind:script={data.extensions.regex_scripts[realIndex]} 
@@ -337,6 +332,44 @@
                         />
                     </div>
                 {/each}
+            {:else}
+                <!-- 正常模式：启用拖拽 -->
+                <div
+                    use:dndzone={{
+                        items: displayScripts,
+                        flipDurationMs: FLIP_DURATION_MS,
+                        delayTouchStart: TOUCH_DELAY_MS,
+                        dragDisabled: isDragDisabled,
+                        dropTargetStyle: {},
+                        type: 'regex-scripts'
+                    }}
+                    onconsider={handleDndConsider}
+                    onfinalize={handleDndFinalize}
+                    class="space-y-3"
+                >
+                    {#each displayScripts as script (script.id)}
+                        {@const realIndex = script.isDndShadowItem ? -1 : data.extensions.regex_scripts.findIndex((s: any) => s.id === script.id)}
+                        <div
+                            animate:flip={{ duration: FLIP_DURATION_MS }}
+                            class={cn(
+                                "transition-all duration-200 relative",
+                                script.isDndShadowItem && "h-16 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5",
+                                !script.isDndShadowItem && openScripts[script.id] ? "z-20" : "z-0 hover:!z-50"
+                            )}
+                        >
+                            {#if !script.isDndShadowItem && realIndex !== -1}
+                                <!-- svelte-ignore binding_property_non_reactive -->
+                                <RegexItem 
+                                    bind:script={data.extensions.regex_scripts[realIndex]} 
+                                    bind:isOpen={openScripts[script.id]}
+                                    isDirty={dirtyScriptIds.has(script.id)}
+                                    {lastSaved}
+                                    onDelete={() => deleteScript(script.id)}
+                                />
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
             {/if}
         </div>
     </ScrollArea>

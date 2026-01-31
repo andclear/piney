@@ -29,7 +29,17 @@
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (res.ok) {
-                worldInfos = await res.json();
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    worldInfos = data;
+                } else if (data.items && Array.isArray(data.items)) {
+                    worldInfos = data.items;
+                } else if (data.data && Array.isArray(data.data)) {
+                     worldInfos = data.data;
+                } else {
+                    console.error("Unexpected world info response format:", data);
+                    worldInfos = [];
+                }
             }
         } catch (e) {
             console.error("Failed to load world infos", e);

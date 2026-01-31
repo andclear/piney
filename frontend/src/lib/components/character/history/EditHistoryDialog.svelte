@@ -380,14 +380,14 @@
                     <div class="space-y-2">
                         <Label>源文件操作</Label>
                         {#if history.source_file_name && history.format !== 'jsonl'}
-                            <div class="flex items-center justify-between p-3 border rounded-md bg-muted/30">
-                                <div class="flex items-center gap-2 text-sm">
-                                    <FileJson class="h-4 w-4 text-blue-500" />
-                                    <span class="truncate max-w-[200px]" title={history.source_file_name}>
+                            <div class="flex items-center justify-between gap-2 p-3 border rounded-md bg-muted/30">
+                                <div class="flex items-center gap-2 text-sm min-w-0 flex-1">
+                                    <FileJson class="h-4 w-4 text-blue-500 shrink-0" />
+                                    <span class="truncate" title={history.source_file_name}>
                                         {history.source_file_name}
                                     </span>
                                 </div>
-                                <Button variant="outline" size="sm" onclick={fetchSource} disabled={isProcessing}>
+                                <Button variant="outline" size="sm" onclick={fetchSource} disabled={isProcessing} class="shrink-0">
                                     {#if isProcessing}
                                         <Loader2 class="mr-2 h-3 w-3 animate-spin" />
                                     {/if}
@@ -463,40 +463,51 @@
                       </div>
                   </div>
                   
-                  <div class="h-[300px] border rounded-md overflow-y-auto p-2" use:dndzone={{items: regexScripts, flipDurationMs: 300, dropTargetStyle: {outline: 'none'}}} onconsider={handleSortConsider} onfinalize={handleSortFinalize}>
+                  <div class="h-[300px] border rounded-md overflow-y-auto p-2" use:dndzone={{items: regexScripts, flipDurationMs: 300, delayTouchStart: 300, dropTargetStyle: {outline: 'none'}}} onconsider={handleSortConsider} onfinalize={handleSortFinalize}>
                       {#if regexScripts.length === 0}
                           <div class="text-center text-muted-foreground text-sm py-8">暂无规则，请导入</div>
                       {:else}
                           {#each regexScripts as script (script.id)}
-                              <div class="flex items-center justify-between p-3 mb-2 border rounded-md bg-card shadow-sm cursor-grab active:cursor-grabbing" animate:flip={{duration: 300}}>
-                                  <div class="flex items-center gap-3 min-w-0">
-                                      <GripVertical class="h-4 w-4 text-muted-foreground/50 shrink-0" />
-                                      <div class="flex flex-col min-w-0">
-                                          <span class={cn("text-sm font-medium truncate", script.disabled && "text-muted-foreground line-through")}>
-                                              {script.scriptName || "未命名规则"}
-                                          </span>
-                                          <span class="text-xs text-muted-foreground truncate font-mono opacity-70">
-                                              {script.findRegex ? script.findRegex.substring(0, 30) : ''}...
-                                          </span>
+                              <div 
+                                animate:flip={{duration: 300}}
+                                class={cn(
+                                    "mb-2 transition-all duration-200 relative",
+                                    script.isDndShadowItem && "h-16 rounded-xl border-2 border-dashed border-primary/50 bg-primary/5",
+                                    !script.isDndShadowItem && "bg-card border rounded-md shadow-sm"
+                                )}
+                              >
+                                  {#if !script.isDndShadowItem}
+                                      <div class="flex items-center justify-between p-3 cursor-grab active:cursor-grabbing">
+                                          <div class="flex items-center gap-3 min-w-0">
+                                              <GripVertical class="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                                              <div class="flex flex-col min-w-0">
+                                                  <span class={cn("text-sm font-medium truncate", script.disabled && "text-muted-foreground line-through")}>
+                                                      {script.scriptName || "未命名规则"}
+                                                  </span>
+                                                  <span class="text-xs text-muted-foreground truncate font-mono opacity-70">
+                                                      {script.findRegex ? script.findRegex.substring(0, 30) : ''}...
+                                                  </span>
+                                              </div>
+                                          </div>
+                                          <div class="flex items-center gap-2 shrink-0">
+                                              <Switch 
+                                                  checked={!script.disabled} 
+                                                  onCheckedChange={(v) => {
+                                                      const idx = regexScripts.findIndex(s => s.id === script.id);
+                                                      if (idx !== -1) {
+                                                          regexScripts[idx].disabled = !v;
+                                                          // Auto-save on toggle
+                                                          updateRegexToBackend(regexScripts);
+                                                      }
+                                                  }}
+                                                  class="scale-90"
+                                              />
+                                              <Button variant="ghost" size="icon" class="h-7 w-7 text-muted-foreground hover:text-destructive" onclick={() => deleteScript(script.id)}>
+                                                  <Trash2 class="h-3 w-3" />
+                                              </Button>
+                                          </div>
                                       </div>
-                                  </div>
-                                  <div class="flex items-center gap-2 shrink-0">
-                                      <Switch 
-                                          checked={!script.disabled} 
-                                          onCheckedChange={(v) => {
-                                              const idx = regexScripts.findIndex(s => s.id === script.id);
-                                              if (idx !== -1) {
-                                                  regexScripts[idx].disabled = !v;
-                                                  // Auto-save on toggle
-                                                  updateRegexToBackend(regexScripts);
-                                              }
-                                          }}
-                                          class="scale-90"
-                                      />
-                                      <Button variant="ghost" size="icon" class="h-7 w-7 text-muted-foreground hover:text-destructive" onclick={() => deleteScript(script.id)}>
-                                          <Trash2 class="h-3 w-3" />
-                                      </Button>
-                                  </div>
+                                  {/if}
                               </div>
                           {/each}
                       {/if}

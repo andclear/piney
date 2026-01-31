@@ -208,8 +208,16 @@
         )}
         role="button"
         tabindex="0"
-        onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (isOpen = !isOpen)}
-        onclick={() => isOpen = !isOpen}
+        onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                isOpen = !isOpen;
+            }
+        }}
+        onclick={(e) => {
+            e.stopPropagation();
+            isOpen = !isOpen;
+        }}
     >
         <!-- Drag Handle (Visual only here, actual drag logic in parent) -->
         <div class="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
@@ -217,7 +225,14 @@
         </div>
 
         <!-- Enable Switch (Left) -->
-        <div class="flex items-center gap-2" role="none" onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
+        <div 
+            class="flex items-center gap-2" 
+            role="none" 
+            onkeydown={(e) => e.stopPropagation()} 
+            onclick={(e) => e.stopPropagation()}
+            onmousedown={(e) => e.stopPropagation()}
+            ontouchstart={(e) => e.stopPropagation()}
+        >
              <Switch 
                 checked={!localDisabled} 
                 onCheckedChange={(v) => localDisabled = !v}
@@ -226,7 +241,12 @@
         </div>
 
         <!-- Collapsible Toggle Content -->
-        <div class="flex items-center gap-2 flex-1 text-left min-w-0">
+        <div 
+            class="flex items-center gap-2 flex-1 text-left min-w-0"
+            onmousedown={(e) => e.stopPropagation()}
+            ontouchstart={(e) => e.stopPropagation()}
+            role="none"
+        >
             <div class={cn("transition-transform duration-200", isOpen && "rotate-180")}>
                 <ChevronDown class="h-4 w-4 text-muted-foreground" />
             </div>
@@ -281,7 +301,7 @@
 
     <!-- Content -->
     {#if isOpen}
-        <div class="p-4 border-t space-y-4 animate-in slide-in-from-top-2 duration-200">
+        <div class="p-4 border-t space-y-4">
 
 
             <div class="grid gap-4 sm:grid-cols-2">

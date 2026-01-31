@@ -151,7 +151,7 @@
     <div class="space-y-1">
         <h1 class="text-3xl font-bold tracking-tight">数据备份与恢复</h1>
         <p class="text-muted-foreground">
-            管理您的系统数据，支持全量备份与一键恢复。
+            管理系统数据，支持全量备份与一键恢复。
         </p>
     </div>
 

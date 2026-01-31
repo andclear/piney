@@ -66,10 +66,8 @@
             onUpdate?.((e: any) => { e.extensions = {}; });
         }
 
-        // Clean up root field if it exists to fix user reported issue (legacy cleanup)
-        // In global mode, we WANT root field.
-        // Clean up root field if it exists to fix user reported issue (legacy cleanup)
-        // In global mode, we WANT root field.
+        // Clean up root field logic omitted as it's handled on cleanup or not critical here
+        // (Legacy cleanup logic preserved if needed, but let's focus on the update)
         if (mode === "character" && (entry as any).vectorized !== undefined) {
              onUpdate?.((e: any) => {
                 delete (e as any).vectorized;
@@ -78,14 +76,18 @@
 
         if (val === "0") {
             // Always
-            entry.constant = true;
-            if (mode === "global") entry.vectorized = false;
-            else entry.extensions.vectorized = false;
+            onUpdate?.((e: any) => {
+                e.constant = true;
+                if (mode === "global") e.vectorized = false;
+                else e.extensions.vectorized = false;
+            });
         } else if (val === "1") {
             // Key
-            entry.constant = false;
-            if (mode === "global") entry.vectorized = false;
-            else entry.extensions.vectorized = false;
+             onUpdate?.((e: any) => {
+                e.constant = false;
+                if (mode === "global") e.vectorized = false;
+                else e.extensions.vectorized = false;
+             });
         } else if (val === "2") {
             // Vector
             onUpdate?.((e: any) => {
@@ -94,6 +96,10 @@
                 else e.extensions.vectorized = true;
             });
         }
+        // Explicitly call onChange if onUpdate is missing/didn't trigger it? 
+        // onUpdate usually triggers onChange (in parent wrapper).
+        // But if onUpdate is undefined? (Shouldn't be)
+        if (!onUpdate && onChange) onChange();
     }
 
     // --- Position Logic ---
@@ -283,6 +289,7 @@
                 comment: e.comment || "",
                 content: e.content || "",
                 keys: e.key || [],
+                secondaryKeys: e.keysecondary || [],
                 probability: e.probability ?? 100,
                 order: e.order ?? 0,
                 depth: e.depth ?? 4,
@@ -294,6 +301,7 @@
                 comment: e.comment || "",
                 content: e.content || "",
                 keys: e.keys || e.key || [],
+                secondaryKeys: e.secondary_keys || e.keysecondary || [],
                 probability: e.extensions?.probability ?? 100,
                 order: e.insertion_order ?? 0,
                 depth: e.extensions?.depth ?? 4,
@@ -310,6 +318,7 @@
     let localComment = $state(fields.comment);
     let localContent = $state(fields.content);
     let localKeys = $state(fields.keys);
+    let localSecondaryKeys = $state(fields.secondaryKeys);
     let localProbability = $state(fields.probability);
     let localOrder = $state(fields.order);
     let localDepth = $state(fields.depth);
@@ -336,6 +345,7 @@
             localComment = f.comment;
             localContent = f.content;
             localKeys = f.keys;
+            localSecondaryKeys = f.secondaryKeys;
             localProbability = f.probability;
             localOrder = f.order;
             localDepth = f.depth;
@@ -355,6 +365,13 @@
              }
         }
     });
+
+    // Update keys effects are separate? No, let's use the pattern.
+    // Actually we handle key updates via localKeys mutation above in addKey/removeKey.
+    // But for secondary keys we should do the same or use effect.
+    // Let's use effect for consistency if possible, OR just use the add/remove pattern for both.
+    // The current addKey/removeKey writes directly to entry AND updates localKeys.
+    // Let's adopt that for Secondary Keys too.
 
     $effect(() => {
         if (entry.comment !== localComment) {
@@ -485,6 +502,14 @@
         return JSON.stringify(localKeys) !== JSON.stringify(origKeys);
     });
 
+    let isSecondaryKeysDirty = $derived.by(() => {
+        const origKeys =
+            mode === "global"
+                ? originalEntry.keysecondary || []
+                : originalEntry.secondary_keys || originalEntry.keysecondary || [];
+        return JSON.stringify(localSecondaryKeys) !== JSON.stringify(origKeys);
+    });
+
     // Logic: Compare localLogic vs original
     let isLogicDirty = $derived.by(() => {
         const origLogic =
@@ -540,6 +565,7 @@
             isCommentDirty ||
             isStatusDirty ||
             isKeysDirty ||
+            isSecondaryKeysDirty ||
             isLogicDirty ||
             isContentDirty ||
             isLogicPosDirty ||
@@ -569,10 +595,14 @@
         onkeydown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
+                e.stopPropagation();
                 isOpen = !isOpen;
             }
         }}
-        onclick={() => (isOpen = !isOpen)}
+        onclick={(e) => {
+            e.stopPropagation();
+            isOpen = !isOpen;
+        }}
     >
         <!-- Drag Handle -->
         <div class="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
@@ -580,14 +610,25 @@
         </div>
 
         <!-- Enable Switch -->
-        <div role="none" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <div 
+            role="none" 
+            onclick={(e) => e.stopPropagation()} 
+            onkeydown={(e) => e.stopPropagation()}
+            onmousedown={(e) => e.stopPropagation()}
+            ontouchstart={(e) => e.stopPropagation()}
+        >
             <Switch
                 bind:checked={localEnabled}
                 class="data-[state=checked]:bg-primary data-[state=unchecked]:bg-input scale-75 origin-left"
             />
         </div>
 
-        <div class="flex-1 flex items-center gap-2 overflow-hidden">
+        <div 
+            class="flex-1 flex items-center gap-2 overflow-hidden"
+            onmousedown={(e) => e.stopPropagation()}
+            ontouchstart={(e) => e.stopPropagation()}
+            role="none"
+        >
              <!-- Chevron (Rotating) -->
              <div class={cn("transition-transform duration-200", isOpen && "rotate-180")}>
                 <ChevronDown class="h-4 w-4 text-muted-foreground" />
@@ -600,8 +641,10 @@
                     !localEnabled &&
                         "text-muted-foreground line-through decoration-transparent", 
                     isEntryDirty && "text-amber-500",
-                )}>{localComment || "未使用标题"}</span
+                )}
             >
+                {localComment || "未使用标题"}
+            </span>
 
             <!-- Indicators -->
             <div
@@ -671,7 +714,6 @@
     <!-- Details -->
     {#if isOpen}
         <div
-            transition:slide={{ duration: 200 }}
             class="px-4 pb-4 pt-0 space-y-4"
         >
             <div class="h-px w-full bg-border/40"></div>
@@ -768,6 +810,7 @@
                             />
                         </div>
                     </div>
+
                 {/if}
 
                 <!-- 4. Logic (Conditional) -->

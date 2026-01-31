@@ -131,6 +131,7 @@
 </script>
 
 <div class="container mx-auto py-6 space-y-6 flex flex-col">
+    <UnsavedGuard controller={unsaved} />
     <!-- Header -->
     <div class="flex items-center justify-between shrink-0">
         <div class="flex items-center gap-4">
@@ -171,6 +172,5 @@
             bind:name={worldName}
         />
 
-        <UnsavedGuard controller={unsaved} />
     {/if}
 </div>
