@@ -329,7 +329,15 @@ export class AiService {
 
             const token = localStorage.getItem("auth_token");
             const response = await this.execute(feature, messages, token);
-            return response.choices?.[0]?.message?.content || "";
+            let content = response.choices?.[0]?.message?.content || "";
+
+            // 预处理：移除 <think>/<thinking>/<cot> 标签及其内容
+            content = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
+            content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+            content = content.replace(/<cot>[\s\S]*?<\/cot>/gi, "");
+            content = content.trim();
+
+            return content;
         } finally {
             this.activeRequests--;
         }
@@ -342,7 +350,8 @@ export class AiService {
         card: any,
         userInput: string,
         wordCount: string,
-        worldInfoContent: string
+        worldInfoContent: string,
+        personType: string
     ) {
         if (this.activeRequests >= this.MAX_CONCURRENT) {
             throw new Error(`AI 请求队列已满 (${this.activeRequests}/${this.MAX_CONCURRENT})，请稍后再试`);
@@ -370,7 +379,8 @@ export class AiService {
                 .replace(/{{personality}}/g, personality)
                 .replace(/{{world_info}}/g, worldInfoContent)
                 .replace(/{{user_request}}/g, userInput)
-                .replace(/{{word_count}}/g, wordCount);
+                .replace(/{{word_count}}/g, wordCount)
+                .replace(/{{person_type}}/g, personType);
 
             // 注意：{{char}} 和 {{user}} 已在 Prompt 中硬编码为字面量要求，无需替换
 
@@ -386,9 +396,10 @@ export class AiService {
             const response = await this.execute(feature, messages, token);
             let content = response.choices?.[0]?.message?.content || "";
 
-            // 预处理：移除 <think>/<thinking> 标签及其内容
+            // 预处理：移除 <think>/<thinking>/<cot> 标签及其内容
             content = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
             content = content.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+            content = content.replace(/<cot>[\s\S]*?<\/cot>/gi, "");
             content = content.trim();
 
             return content;

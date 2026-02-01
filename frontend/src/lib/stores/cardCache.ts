@@ -81,3 +81,9 @@ function createCardCache() {
 }
 
 export const cardCache = createCardCache();
+
+/**
+ * 列表页面刷新信号
+ * 当封面或其他需要列表刷新的内容更新时，设置为 true
+ */
+export const listNeedsRefresh = writable<boolean>(false);

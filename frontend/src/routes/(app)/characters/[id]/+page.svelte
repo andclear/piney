@@ -59,7 +59,7 @@
     import { AiFeature } from "$lib/ai/types";
 
     import { API_BASE, resolveUrl } from "$lib/api";
-    import { cardCache } from "$lib/stores/cardCache";
+    import { cardCache, listNeedsRefresh } from "$lib/stores/cardCache";
     let cardId = $page.params.id as string;
     let card: any = null;
     let loading = true;
@@ -123,12 +123,14 @@
     let isOpeningGenDialogOpen = false;
     let openingGenRequest = "";
     let openingWordCount = "";
+    let openingPersonType = "第三人称"; // 默认第三人称
     let openingIncludeWorldInfo = false;
     let isGeneratingOpening = false;
 
     function resetOpeningGenState() {
         openingGenRequest = "";
         openingWordCount = ""; // No default value
+        openingPersonType = "第三人称"; // Reset to default
         openingIncludeWorldInfo = false;
     }
 
@@ -181,7 +183,8 @@
                 card,
                 openingGenRequest,
                 openingWordCount,
-                worldInfoContext
+                worldInfoContext,
+                openingPersonType
             );
 
             // Insertion Logic
@@ -817,13 +820,26 @@
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
                 body: formData,
             });
-            if (!res.ok) throw new Error("上传失败");
+            if (!res.ok) {
+                const errText = await res.text().catch(() => "未知错误");
+                throw new Error(errText || "上传失败");
+            }
 
-            toast.success("封面更新成功");
             avatarKey = Date.now(); // Force refresh image
-            await loadCard(); // Reload to get new version/avatar url
-        } catch (e) {
-            toast.error("更新封面失败");
+            listNeedsRefresh.set(true); // Signal list page to refresh
+            
+            // Reload card data (don't let its error affect the success toast)
+            try {
+                await loadCard();
+            } catch (loadErr) {
+                console.warn("loadCard after cover update failed:", loadErr);
+                // Don't toast error here, cover update was successful
+            }
+            
+            toast.success("封面更新成功");
+        } catch (e: any) {
+            console.error("Cover update error:", e);
+            toast.error("更新封面失败", { description: e.message || String(e) });
         } finally {
             toast.dismiss(loadingToast);
         }
@@ -1735,7 +1751,7 @@
                         for="use-yaml"
                         class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
-                        使用 YAML 格式创建
+                        使用 YAML 格式创建（推荐）
                     </Label>
                     <p class="text-sm text-muted-foreground">
                         勾选后将严格按照 YAML 结构生成详细档案。
@@ -1805,6 +1821,18 @@
                     placeholder="例如: 200"
                 />
             </div>
+
+            <div class="space-y-2">
+                <Label>叙述人称 <span class="text-destructive">*</span></Label>
+                <select 
+                    bind:value={openingPersonType}
+                    class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                    <option value="第三人称">第三人称（客观视角）</option>
+                    <option value="第一人称">第一人称（角色内心）</option>
+                    <option value="第二人称">第二人称（用户视角）</option>
+                </select>
+            </div>
             
             <div class="flex items-start gap-2 pt-2">
                 <Checkbox id="opening-include-wi" bind:checked={openingIncludeWorldInfo} class="mt-0.5 border-muted-foreground/50" />
@@ -1827,7 +1855,7 @@
             <Button onclick={handleGenerateOpening} disabled={isGeneratingOpening}>
                 {#if isGeneratingOpening}
                     <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-                    生成中...
+                    生成中,别关...
                 {:else}
                     <Sparkles class="mr-2 h-4 w-4" />
                     开始生成

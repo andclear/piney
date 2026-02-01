@@ -21,6 +21,7 @@
     import { longpress } from "$lib/actions/longpress";
     import { API_BASE, resolveUrl } from "$lib/api";
     import { breadcrumbs } from "$lib/stores/breadcrumb";
+    import { listNeedsRefresh } from "$lib/stores/cardCache";
     import {
         Download,
         Search,
@@ -561,6 +562,14 @@
     // ============ 生命周期 ============
     onMount(async () => {
         breadcrumbs.set([{ label: "角色库" }]);
+        
+        // 检查是否需要刷新（如封面更新后返回）
+        if ($listNeedsRefresh) {
+            listNeedsRefresh.set(false);
+            await Promise.all([fetchCategories(), fetchCards()]);
+            loading = false;
+            return;
+        }
         
         // 使用预加载数据（如果存在）
         const preloaded = $page.data;
@@ -1346,7 +1355,7 @@
                                 class="w-10 h-14 rounded overflow-hidden bg-muted flex-shrink-0"
                             >
                                 <img
-                                    src={resolveUrl(card.avatar)}
+                                    src={resolveUrl(card.avatar ? `${card.avatar}?v=${new Date(card.updated_at).getTime()}` : "/default.webp")}
                                     alt={card.name}
                                     class={cn(
                                         "w-full h-full object-cover",

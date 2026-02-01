@@ -1263,32 +1263,76 @@ pub async fn update_cover(
             )
         })?;
 
-        // 2. Save as WebP (Avatar)
-        // Use the same resized image
-        let webp_data = {
-            let encoder = webp::Encoder::from_image(&resized).map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("WebP init failed: {}", e),
-                )
-            })?;
-            encoder.encode(85.0).to_vec()
-        };
+        // 2. Save as WebP (Avatar) - 必须生成 WebP，不允许回退到 PNG
+        // 使用重试机制确保 WebP 生成成功
+        let webp_path = storage_dir.join("v1_thumbnail.webp");
+        let max_retries = 3;
+        let mut last_error = String::new();
 
-        let file_path = storage_dir.join("v1_thumbnail.webp"); // Keeping naming convention
-        fs::write(&file_path, &*webp_data).await.map_err(|e| {
-            (
+        for attempt in 1..=max_retries {
+            match (|| -> Result<(), String> {
+                let encoder = webp::Encoder::from_image(&resized)
+                    .map_err(|e| format!("WebP encoder init failed: {}", e))?;
+                let webp_data = encoder.encode(85.0);
+
+                // Validate WebP data is not empty
+                if webp_data.is_empty() {
+                    return Err("WebP encoding produced empty data".to_string());
+                }
+
+                // Use std::fs for sync write
+                std::fs::write(&webp_path, &*webp_data)
+                    .map_err(|e| format!("Write thumbnail failed: {}", e))?;
+
+                // Verify file was written
+                if !webp_path.exists() {
+                    return Err("WebP file was not created".to_string());
+                }
+
+                Ok(())
+            })() {
+                Ok(_) => {
+                    tracing::info!(
+                        "WebP thumbnail generated successfully on attempt {}",
+                        attempt
+                    );
+                    break;
+                }
+                Err(e) => {
+                    last_error = e.clone();
+                    tracing::warn!(
+                        "WebP thumbnail generation failed on attempt {}/{}: {}",
+                        attempt,
+                        max_retries,
+                        e
+                    );
+                    if attempt < max_retries {
+                        // Brief delay before retry
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+            }
+        }
+
+        // Check if WebP was successfully created
+        if !webp_path.exists() {
+            return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Write thumbnail failed: {}", e),
-            )
-        })?;
+                format!(
+                    "WebP thumbnail generation failed after {} attempts: {}",
+                    max_retries, last_error
+                ),
+            ));
+        }
+
+        let avatar_path = format!("/cards/{}/v1_thumbnail.webp", id);
 
         // Update DB
         let mut active: character_card::ActiveModel = card.into();
-        let expected_path = format!("/cards/{}/v1_thumbnail.webp", id);
-        active.avatar = Set(Some(expected_path));
+        active.avatar = Set(Some(avatar_path));
         // Mark as modified since source image changed (and likely needs new metadata injected on export)
         active.metadata_modified = Set(true);
+        active.updated_at = Set(chrono::Utc::now().naive_utc());
 
         active
             .update(&db)
