@@ -10,19 +10,19 @@ export default defineConfig({
         host: '0.0.0.0',
         proxy: {
             '/api': {
-                target: 'http://localhost:9696',
+                target: 'http://127.0.0.1:9696',
                 changeOrigin: true
             },
             '/uploads': {
-                target: 'http://localhost:9696',
+                target: 'http://127.0.0.1:9696',
                 changeOrigin: true
             },
             '/cards': {
-                target: 'http://localhost:9696',
+                target: 'http://127.0.0.1:9696',
                 changeOrigin: true
             },
             '/images': {
-                target: 'http://localhost:9696',
+                target: 'http://127.0.0.1:9696',
                 changeOrigin: true
             }
         }

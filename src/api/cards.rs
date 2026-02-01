@@ -800,6 +800,7 @@ pub struct CardListItem {
     pub cover_blur: bool,
     pub version: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>, // Added
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -807,7 +808,7 @@ pub struct CardListItem {
 struct CardListRow {
     pub id: Uuid,
     pub name: String,
-    pub description: Option<String>,
+    // pub description: Option<String>, // Removed
     pub author: Option<String>,
     pub avatar: Option<String>,
     pub category_id: Option<Uuid>,
@@ -816,6 +817,7 @@ struct CardListRow {
     pub cover_blur: bool,
     pub version: Option<String>,
     pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime, // Added
     pub deleted_at: Option<chrono::NaiveDateTime>,
 }
 
@@ -829,7 +831,7 @@ pub async fn list(
         .columns([
             character_card::Column::Id,
             character_card::Column::Name,
-            character_card::Column::Description,
+            // character_card::Column::Description, // Removed
             character_card::Column::Author,
             character_card::Column::Avatar,
             character_card::Column::CategoryId,
@@ -838,6 +840,7 @@ pub async fn list(
             character_card::Column::CoverBlur,
             character_card::Column::Version,
             character_card::Column::CreatedAt,
+            character_card::Column::UpdatedAt, // Added
             character_card::Column::DeletedAt,
         ])
         .filter(character_card::Column::DeletedAt.is_null());
@@ -902,7 +905,7 @@ pub async fn list(
             CardListItem {
                 id: c.id,
                 name: c.name,
-                description: c.description,
+                description: None, // Optimized out
                 author: c.author,
                 avatar: c.avatar,
                 category_id: c.category_id,
@@ -911,6 +914,7 @@ pub async fn list(
                 cover_blur: c.cover_blur,
                 version: c.version,
                 created_at: chrono::Utc.from_utc_datetime(&c.created_at),
+                updated_at: chrono::Utc.from_utc_datetime(&c.updated_at), // Added
                 deleted_at: c.deleted_at.map(|d| chrono::Utc.from_utc_datetime(&d)),
             }
         })
@@ -1615,12 +1619,45 @@ pub async fn soft_delete(
 // ============ 回收站 API ============
 
 /// GET /api/trash/cards - 回收站列表
+#[derive(Debug, FromQueryResult)]
+struct TrashCardRow {
+    pub id: Uuid,
+    pub name: String,
+    // pub description: Option<String>, // Removed for performance
+    pub author: Option<String>,
+    pub avatar: Option<String>,
+    pub category_id: Option<Uuid>,
+    pub tags: String,
+    pub rating: f64,
+    pub cover_blur: bool,
+    pub version: Option<String>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime, // Added
+    pub deleted_at: Option<chrono::NaiveDateTime>,
+}
+
 pub async fn list_trash(
     State(db): State<DatabaseConnection>,
 ) -> Result<Json<Vec<CardListItem>>, (StatusCode, String)> {
+    // 仅选择必要的列，避免加载 data 和 description
     let cards = character_card::Entity::find()
+        .select_only()
+        .column(character_card::Column::Id)
+        .column(character_card::Column::Name)
+        // .column(character_card::Column::Description)
+        .column(character_card::Column::Author)
+        .column(character_card::Column::Avatar)
+        .column(character_card::Column::CategoryId)
+        .column(character_card::Column::Tags)
+        .column(character_card::Column::Rating)
+        .column(character_card::Column::CoverBlur)
+        .column(character_card::Column::Version)
+        .column(character_card::Column::CreatedAt)
+        .column(character_card::Column::UpdatedAt)
+        .column(character_card::Column::DeletedAt)
         .filter(character_card::Column::DeletedAt.is_not_null())
         .order_by_desc(character_card::Column::DeletedAt)
+        .into_model::<TrashCardRow>()
         .all(&db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -1629,18 +1666,32 @@ pub async fn list_trash(
         .into_iter()
         .map(|c| {
             let tags: Vec<String> = serde_json::from_str(&c.tags).unwrap_or_default();
+            
+            // Safety check: Detect if avatar is Base64 (huge string)
+            let avatar = if let Some(ref a) = c.avatar {
+                if a.len() > 1024 { // Threshold: 1KB. Paths are rarely this long.
+                    tracing::warn!("Card {} (Trash) has oversized avatar field ({} bytes). Omitting to prevent lag.", c.id, a.len());
+                    None
+                } else {
+                    c.avatar
+                }
+            } else {
+                None
+            };
+
             CardListItem {
                 id: c.id,
                 name: c.name,
-                description: c.description,
+                description: None, // Optimized out
                 author: c.author,
-                avatar: c.avatar,
+                avatar,
                 category_id: c.category_id,
                 tags,
                 rating: c.rating,
                 cover_blur: c.cover_blur,
                 version: c.version,
                 created_at: chrono::Utc.from_utc_datetime(&c.created_at),
+                updated_at: chrono::Utc.from_utc_datetime(&c.updated_at),
                 deleted_at: c.deleted_at.map(|d| chrono::Utc.from_utc_datetime(&d)),
             }
         })

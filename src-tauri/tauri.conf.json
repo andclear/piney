@@ -5,7 +5,7 @@
   "identifier": "com.piney.app",
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "cd frontend && npm run build",
     "frontendDist": "../frontend/build"
   },

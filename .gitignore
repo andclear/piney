@@ -47,3 +47,8 @@ npm-debug.log*
 # 文档
 docs/
 docs
+
+# Vite 临时配置文件
+*.timestamp-*
+*.timestamp-*.mjs
+*.timestamp-*.js

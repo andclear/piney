@@ -18,9 +18,10 @@
         id: string;
         name: string;
         avatar?: string;
-        description?: string;
         tags?: string[];
         version?: string;
+        created_at: string;
+        updated_at: string;
         deleted_at: string | null;
     }
 
