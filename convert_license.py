@@ -12,7 +12,7 @@ def txt_to_rtf(txt_path, rtf_path):
     
     rtf_content = []
     rtf_content.append(rtf_header)
-    rtf_content.append(r"\viewkind4\uc1\pard\sa200\sl276\slmult1\f0\fs22\lang2052")
+    rtf_content.append(r"\viewkind4\uc1\pard\sa100\sl240\slmult1\f0\fs22\lang2052")
 
     for char in content:
         code = ord(char)
