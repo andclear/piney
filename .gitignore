@@ -52,3 +52,9 @@ docs
 *.timestamp-*
 *.timestamp-*.mjs
 *.timestamp-*.js
+
+# 递归忽略 android 目录下的所有临时文件夹
+src-tauri/gen/android/**/.gradle/
+src-tauri/gen/android/**/build/
+src-tauri/gen/android/**/.kotlin/
+src-tauri/gen/android/**/.idea/

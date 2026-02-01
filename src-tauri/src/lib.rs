@@ -62,12 +62,36 @@ pub fn run() {
                 std::env::set_var("DATA_DIR", abs_data.to_string_lossy().to_string());
             }
 
+            let log_path_clone = final_data_path.join("startup.log");
+            let log = move |msg: &str| {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&log_path_clone)
+                {
+                    let _ = writeln!(
+                        file,
+                        "[{}] {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                        msg
+                    );
+                }
+            };
+
+            let log_clone = log.clone();
+            log("Tauri setup completed. Spawning backend thread...");
+
             // 启动后端服务（在单独的线程中）
-            std::thread::spawn(|| {
+            std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    if let Err(e) = start_backend().await {
+                    log_clone("Backend thread started.");
+                    if let Err(e) = start_backend(log_clone.clone()).await {
+                        log_clone(&format!("Backend CRASHED: {}", e));
                         eprintln!("后端启动失败: {}", e);
+                    } else {
+                        log_clone("Backend stopped unexpectedly (or app closed).");
                     }
                 });
             });
@@ -78,29 +102,41 @@ pub fn run() {
         .expect("运行 Tauri 应用时出错");
 }
 
-async fn start_backend() -> anyhow::Result<()> {
-    // 1. 初始化数据库
-    let db = piney::db::init_database().await?;
+async fn start_backend<F>(log: F) -> anyhow::Result<()>
+where
+    F: Fn(&str) + Clone + Send + Sync + 'static,
+{
+    log("Initializing database...");
+    let db = match piney::db::init_database().await {
+        Ok(d) => d,
+        Err(e) => {
+            log(&format!("Database init failed: {}", e));
+            return Err(e.into());
+        }
+    };
+    log("Database initialized.");
 
-    // 2. 运行模式 (Tauri 下强制使用 App 模式)
+    // 2. 运行模式
     let mode = piney::utils::mode_detect::RunMode::App;
 
     // 3. 初始化 Config
     let config_path = piney::utils::paths::get_data_path("config.yml");
+    log(&format!("Loading config from: {:?}", config_path));
 
-    println!("正在加载配置文件: {:?}", config_path);
     let config = piney::config::ConfigState::new(&config_path.to_string_lossy());
 
     // 4. 创建 Axum 应用
+    log("Creating Axum app...");
     let app = piney::create_app(db, mode, config).await;
 
-    // 5. 启动侦听 (仅本地回路)
+    // 5. 启动侦听
     let port = 9696;
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
-    println!("Tauri 后端服务启动于 http://{}", addr);
-
+    log(&format!("Binding to address: {}", addr));
     let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    log("Server listening. Entering loop...");
     axum::serve(listener, app).await?;
 
     Ok(())
