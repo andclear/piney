@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Piney",
-  "version": "0.1.0",
+  "productName": "小兄许",
+  "version": "0.2.5",
   "identifier": "com.piney.app",
   "build": {
     "beforeDevCommand": "cd frontend && npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Piney - 囤囤小兄许",
+        "title": "小兄许 - Piney",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -40,8 +40,10 @@
     "externalBin": [],
     "copyright": "",
     "category": "Utility",
+    "license": "CC-BY-NC-SA-4.0",
+    "licenseFile": "LICENSE.txt",
     "shortDescription": "SillyTavern 角色卡工作站",
-    "longDescription": "Piney (囤囤小兄许) 是一个 SillyTavern 生态的全能角色卡工作站",
+    "longDescription": "小兄许 (Piney) 是一个 SillyTavern 生态的角色卡工作站",
     "linux": {
       "deb": {
         "depends": []
@@ -57,7 +59,19 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "wix": null,
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "headerImage": null,
+        "sidebarImage": "nsis/sidebar.bmp",
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
     }
   }
 }

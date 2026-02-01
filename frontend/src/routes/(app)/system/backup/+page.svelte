@@ -151,22 +151,31 @@
     <div class="space-y-1">
         <h1 class="text-3xl font-bold tracking-tight">数据备份与恢复</h1>
         <p class="text-muted-foreground">
-            管理系统数据，支持全量备份与一键恢复。
+            管理小兄许数据，支持全量备份与一键恢复。
         </p>
     </div>
 
     <!-- Main Content Tabs -->
     <Tabs.Root bind:value={activeTab} class="w-full">
-        <Tabs.List class="grid w-full grid-cols-2 mb-8 h-auto">
-            <Tabs.Trigger value="export" class="text-base py-3">
-                <DatabaseBackup class="mr-2 h-4 w-4" />
-                导出数据
-            </Tabs.Trigger>
-            <Tabs.Trigger value="import" class="text-base py-3">
-                <RotateCcw class="mr-2 h-4 w-4" />
-                恢复数据
-            </Tabs.Trigger>
-        </Tabs.List>
+        <!-- 自定义 Tab 按钮，避免 bits-ui 在 Tauri 中的渲染问题 -->
+        <div class="grid w-full grid-cols-2 mb-8 bg-muted p-1 rounded-lg">
+            <button 
+                type="button"
+                onclick={() => activeTab = 'export'}
+                class="text-base py-3 rounded-md flex items-center justify-center gap-2 transition-all {activeTab === 'export' ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+            >
+                <DatabaseBackup class="h-4 w-4" />
+                <span>导出数据</span>
+            </button>
+            <button 
+                type="button"
+                onclick={() => activeTab = 'import'}
+                class="text-base py-3 rounded-md flex items-center justify-center gap-2 transition-all {activeTab === 'import' ? 'bg-background text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}"
+            >
+                <RotateCcw class="h-4 w-4" />
+                <span>恢复数据</span>
+            </button>
+        </div>
 
         <!-- Tab 1: Export -->
         <Tabs.Content value="export" class="space-y-6 focus-visible:outline-none">
