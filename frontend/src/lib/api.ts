@@ -8,8 +8,9 @@
 
 // API 基础路径
 export const getApiBase = (): string => {
-    // 检测是否在 Tauri 环境
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+    // 检测是否在 Tauri 环境 (支持 v1 和 v2)
+    if (typeof window !== 'undefined' &&
+        ((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__)) {
         return 'http://127.0.0.1:9696';
     }
     // 开发环境或 Docker 模式建议使用相对路径

@@ -163,15 +163,18 @@ jobs:
       - name: Initialize Android project
         run: ./frontend/node_modules/.bin/tauri android init
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build Android APK
+        run: ./frontend/node_modules/.bin/tauri android build
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Find and Upload APK
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         with:
-          tauriScript: ./frontend/node_modules/.bin/tauri
-          tagName: v${{ inputs.version }}
-          releaseName: '小兄许 v${{ inputs.version }}'
-          releaseBody: '下载对应平台的安装包进行安装。'
-          releaseDraft: true
-          prerelease: false
-          mobile: android
+          tag_name: v${{ inputs.version }}
+          name: '小兄许 v${{ inputs.version }}'
+          draft: true
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
