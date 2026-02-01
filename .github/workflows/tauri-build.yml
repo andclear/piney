@@ -53,12 +53,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v${{ inputs.version }}
-          releaseName: '小兄许 v${{ inputs.version }}'
-          releaseBody: '下载对应平台的安装包进行安装。'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Rename Artifacts
+        run: |
+          cd src-tauri/target/release/bundle/dmg
+          mv *.dmg Piney_v${{ inputs.version }}_macos_${{ matrix.arch }}.dmg
+          echo "DMG_PATH=$(pwd)/Piney_v${{ inputs.version }}_macos_${{ matrix.arch }}.dmg" >> $GITHUB_ENV
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || inputs.version != ''
+        with:
+          tag_name: v${{ inputs.version }}
+          name: '小兄许 v${{ inputs.version }}'
+          draft: true
+          files: ${{ env.DMG_PATH }}
 
   # Windows 构建
   build-windows:
@@ -103,12 +113,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v${{ inputs.version }}
-          releaseName: '小兄许 v${{ inputs.version }}'
-          releaseBody: '下载对应平台的安装包进行安装。'
-          releaseDraft: true
-          prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Rename Artifacts
+        run: |
+          cd src-tauri/target/release/bundle/nsis
+          Get-ChildItem *.exe | Rename-Item -NewName "Piney_v${{ inputs.version }}_windows_${{ matrix.arch }}.exe"
+          $exePath = Resolve-Path "Piney_v${{ inputs.version }}_windows_${{ matrix.arch }}.exe"
+          echo "EXE_PATH=$exePath" >> $env:GITHUB_ENV
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || inputs.version != ''
+        with:
+          tag_name: v${{ inputs.version }}
+          name: '小兄许 v${{ inputs.version }}'
+          draft: true
+          files: ${{ env.EXE_PATH }}
 
   # Android 构建
   build-android:
