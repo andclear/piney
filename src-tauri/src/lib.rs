@@ -1,5 +1,7 @@
 //! Tauri 库入口
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -27,7 +29,6 @@ pub fn run() {
             // 桌面端
             #[cfg(not(mobile))]
             {
-                use tauri::Manager;
                 let current_dir = std::env::current_dir().unwrap_or_default();
 
                 // 1. 默认数据目录逻辑
