@@ -12,7 +12,7 @@ use axum::{
 use chrono::Utc;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
@@ -65,10 +65,7 @@ pub async fn upload_quick_reply(
     Path(card_id): Path<Uuid>,
     mut multipart: Multipart,
 ) -> Result<Json<QuickReplyDto>, (StatusCode, String)> {
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let card_dir = PathBuf::from(&data_dir)
-        .join("cards")
-        .join(card_id.to_string());
+    let card_dir = crate::utils::paths::get_data_path("cards").join(card_id.to_string());
 
     // 检查角色卡目录是否存在
     if !card_dir.exists() {
@@ -193,9 +190,7 @@ pub async fn delete_quick_reply(
         .ok_or((StatusCode::NOT_FOUND, "快速回复不存在".to_string()))?;
 
     // 删除文件
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let file_path = PathBuf::from(&data_dir)
-        .join("cards")
+    let file_path = crate::utils::paths::get_data_path("cards")
         .join(card_id.to_string())
         .join(&qr.file_name);
 
@@ -224,9 +219,7 @@ pub async fn export_quick_reply(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "快速回复不存在".to_string()))?;
 
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let file_path = PathBuf::from(&data_dir)
-        .join("cards")
+    let file_path = crate::utils::paths::get_data_path("cards")
         .join(card_id.to_string())
         .join(&qr.file_name);
 

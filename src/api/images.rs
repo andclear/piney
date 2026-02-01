@@ -525,7 +525,7 @@ pub async fn import(
         })?;
 
         let id = Uuid::new_v4();
-        let storage_dir = PathBuf::from("./data/images").join(id.to_string());
+        let storage_dir = crate::utils::paths::get_data_path("images").join(id.to_string());
         fs::create_dir_all(&storage_dir).await.map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -728,7 +728,7 @@ pub async fn delete(
         })?;
 
     // 删除文件
-    let storage_dir = PathBuf::from("./data/images").join(id.to_string());
+    let storage_dir = crate::utils::paths::get_data_path("images").join(id.to_string());
     if storage_dir.exists() {
         let _ = fs::remove_dir_all(&storage_dir).await;
     }
@@ -753,7 +753,7 @@ pub async fn batch_delete(
         let image = image_entity::Entity::find_by_id(*id).one(&db).await;
         if let Ok(Some(img)) = image {
             // 删除文件
-            let storage_dir = PathBuf::from("./data/images").join(id.to_string());
+            let storage_dir = crate::utils::paths::get_data_path("images").join(id.to_string());
             if storage_dir.exists() {
                 let _ = fs::remove_dir_all(&storage_dir).await;
             }

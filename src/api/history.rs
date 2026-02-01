@@ -9,7 +9,7 @@ use axum::{
 use chrono::Utc;
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
 use tokio::fs;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
@@ -71,10 +71,7 @@ pub async fn upload_history(
     Path(card_id): Path<Uuid>,
     mut multipart: Multipart,
 ) -> Result<Json<ChatHistoryDto>, (StatusCode, String)> {
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let card_dir = PathBuf::from(&data_dir)
-        .join("cards")
-        .join(card_id.to_string());
+    let card_dir = crate::utils::paths::get_data_path("cards").join(card_id.to_string());
 
     if !card_dir.exists() {
         return Err((
@@ -236,10 +233,8 @@ pub async fn update_history(
     if let Some(name) = payload.display_name {
         // If name changes, rename the file
         if name != history_model.display_name {
-            let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-            let card_dir = PathBuf::from(&data_dir)
-                .join("cards")
-                .join(history_model.card_id.to_string());
+            let card_dir =
+                crate::utils::paths::get_data_path("cards").join(history_model.card_id.to_string());
 
             let old_file_name = history_model.file_name.clone();
             let old_path = card_dir.join(&old_file_name);
@@ -341,9 +336,7 @@ pub async fn delete_history(
         .ok_or((StatusCode::NOT_FOUND, "History not found".to_string()))?;
 
     // Delete file
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let file_path = PathBuf::from(&data_dir)
-        .join("cards")
+    let file_path = crate::utils::paths::get_data_path("cards")
         .join(card_id.to_string())
         .join(&history.file_name);
 
@@ -355,8 +348,7 @@ pub async fn delete_history(
 
     // Delete Source file if exists
     if let Some(source_name) = &history.source_file_name {
-        let source_path = PathBuf::from(&data_dir)
-            .join("cards")
+        let source_path = crate::utils::paths::get_data_path("cards")
             .join(card_id.to_string())
             .join(source_name);
 
@@ -419,9 +411,7 @@ pub async fn get_history_content(
         history.file_name
     };
 
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let file_path = PathBuf::from(&data_dir)
-        .join("cards")
+    let file_path = crate::utils::paths::get_data_path("cards")
         .join(card_id.to_string())
         .join(&target_file_name);
 
@@ -710,10 +700,7 @@ pub async fn update_history_content(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .ok_or((StatusCode::NOT_FOUND, "History not found".to_string()))?;
 
-    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".to_string());
-    let card_dir = PathBuf::from(&data_dir)
-        .join("cards")
-        .join(card_id.to_string());
+    let card_dir = crate::utils::paths::get_data_path("cards").join(card_id.to_string());
 
     let mut file_data: Option<Vec<u8>> = None;
 
