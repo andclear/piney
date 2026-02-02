@@ -118,10 +118,16 @@ pub async fn init_database() -> anyhow::Result<DatabaseConnection> {
         std::fs::File::create(&db_path)?;
     }
 
-    // 构建简单的连接字符串 (不带查询参数，也就不会有解析歧义)
-    // 比如 Windows: sqlite:D:/Piney/data/piney.db
-    // 比如 Mac:     sqlite:/Users/name/.../piney.db
-    let db_url = format!("sqlite:{}", db_path_str);
+    // 构建连接字符串 (不带查询参数)
+    // Windows: sqlite:///D:/path/to/db (3个斜杠 = 空host + 绝对路径)
+    // Unix:    sqlite:///path/to/db     (3个斜杠 = 空host + 绝对路径)
+    // 注意：Unix下 db_path_str 已经是 / 开头，所以用 sqlite:// 连接即可
+
+    let db_url = if cfg!(windows) {
+        format!("sqlite:///{}", db_path_str)
+    } else {
+        format!("sqlite://{}", db_path_str)
+    };
 
     info!("连接数据库: {}", db_url);
 

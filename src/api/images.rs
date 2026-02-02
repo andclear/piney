@@ -819,7 +819,8 @@ pub async fn batch_export(
     let mut count = 0;
     for id in &payload.ids {
         if let Ok(Some(img)) = image_entity::Entity::find_by_id(*id).one(&db).await {
-            let path = PathBuf::from("./data").join(img.file_path.trim_start_matches('/'));
+            let path =
+                crate::utils::paths::get_data_dir().join(img.file_path.trim_start_matches('/'));
             if path.exists() {
                 if let Ok(content) = fs::read(&path).await {
                     let file_name = if img.title.trim().is_empty() {
@@ -898,7 +899,8 @@ pub async fn export(
         })?;
 
     // 读取原图
-    let file_path = PathBuf::from("./data").join(image.file_path.trim_start_matches('/'));
+    let file_path =
+        crate::utils::paths::get_data_dir().join(image.file_path.trim_start_matches('/'));
     let data = fs::read(&file_path).await.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
