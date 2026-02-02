@@ -29,6 +29,8 @@
     let dndItems: any[] = $state([]);
     let isDragging = $state(false);
 
+    let openEntries: Record<number, boolean> = $state({});
+
     // 当任意条目展开时禁用拖拽
     let isDragDisabled = $derived(openEntries && Object.values(openEntries).some(v => v));
 
@@ -52,7 +54,6 @@
     });
 
     let searchTerm = $state("");
-    let openEntries: Record<number, boolean> = $state({});
 
     // Dirty State Logic for World Name
     let originalName = $state("");

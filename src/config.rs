@@ -156,6 +156,16 @@ impl ConfigState {
 
         let yaml = serde_yaml::to_string(&new_config)?;
         let content = format!("{}\n{}", CONFIG_HEADER, yaml);
+
+        // Fix: Ensure parent directory exists before writing config
+        // This prevents silent failure when data directory (e.g. ./data) doesn't exist yet
+        if let Some(parent) = Path::new(&self.file_path).parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)?;
+                info!("Created parent directory for config: {:?}", parent);
+            }
+        }
+
         fs::write(&self.file_path, content)?;
 
         *self.config.write().unwrap() = Some(new_config);

@@ -764,7 +764,7 @@
             }
             
             // Normalize entries
-            let entries = [];
+            let entries: any[] = [];
             let isMap = false;
             if (Array.isArray(characterBook.entries)) {
                 entries = [...characterBook.entries];
@@ -915,7 +915,9 @@ ${info.outerHTML}`;
     
     // 初始化
     onMount(() => {
-        loadStyleLibrary();
+        if (localStorage.getItem('auth_token')) {
+            loadStyleLibrary();
+        }
         window.addEventListener('message', handleIframeMessage);
         return () => window.removeEventListener('message', handleIframeMessage);
     });
@@ -980,8 +982,9 @@ ${info.outerHTML}`;
             
             <!-- 原始文本 -->
             <div class="p-4 border-b">
-                <label class="text-sm font-medium mb-2 block">原始文本（可选）</label>
+                <label for="original-text" class="text-sm font-medium mb-2 block">原始文本（可选）</label>
                 <Textarea 
+                    id="original-text"
                     bind:value={originalText}
                     placeholder="粘贴示例文本，如人物状态栏格式..."
                     class="min-h-[100px] resize-y text-sm font-mono"
@@ -1157,12 +1160,13 @@ ${info.outerHTML}`;
                     <!-- 正则 -->
                     <div>
                         <div class="flex items-center justify-between mb-2">
-                            <label class="text-sm font-medium">正则表达式</label>
+                            <label for="regex-pattern" class="text-sm font-medium">正则表达式</label>
                             <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => copyToClipboard(regexPattern, '正则')}>
                                 <Copy class="w-3 h-3" />
                             </Button>
                         </div>
                         <Textarea 
+                            id="regex-pattern"
                             bind:value={regexPattern}
                             placeholder="正则表达式..."
                             class="min-h-[80px] font-mono text-sm"
@@ -1172,12 +1176,13 @@ ${info.outerHTML}`;
                     <!-- 样式代码 -->
                     <div>
                         <div class="flex items-center justify-between mb-2">
-                            <label class="text-sm font-medium">替换为（HTML/CSS/JS）</label>
+                            <label for="html-code" class="text-sm font-medium">替换为（HTML/CSS/JS）</label>
                             <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => copyToClipboard(htmlCode, '样式代码')}>
                                 <Copy class="w-3 h-3" />
                             </Button>
                         </div>
                         <Textarea 
+                            id="html-code"
                             bind:value={htmlCode}
                             placeholder="HTML/CSS/JS 代码..."
                             class="min-h-[200px] font-mono text-sm"
@@ -1187,12 +1192,13 @@ ${info.outerHTML}`;
                     <!-- 世界书条目 -->
                     <div>
                         <div class="flex items-center justify-between mb-2">
-                            <label class="text-sm font-medium">世界书条目</label>
+                            <label for="worldinfo-key" class="text-sm font-medium">世界书条目</label>
                             <Button variant="ghost" size="icon" class="h-6 w-6" onclick={() => copyToClipboard(`${worldinfoKey}\n\n${worldinfoContent}`, '世界书条目')}>
                                 <Copy class="w-3 h-3" />
                             </Button>
                         </div>
                         <Input 
+                            id="worldinfo-key"
                             bind:value={worldinfoKey}
                             placeholder="触发关键词 / 条目名称"
                             class="mb-2"

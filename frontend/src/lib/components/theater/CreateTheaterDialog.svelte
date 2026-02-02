@@ -118,7 +118,7 @@
             <div class="space-y-2">
                 <Label>分类</Label>
                 <Popover.Root bind:open={categoryOpen}>
-                    <Popover.Trigger asChild>
+                    <Popover.Trigger>
                         {#snippet child({ props })}
                             <Button variant="outline" class="w-full justify-start" {...props}>
                                 {category || "选择分类..."}

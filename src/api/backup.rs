@@ -208,13 +208,17 @@ pub async fn import_backup(
         if is_gzip {
             let decoder = GzDecoder::new(&data_clone[..]);
             let mut archive = Archive::new(decoder);
+            // Fix: Windows extended path prefix (\\?\) causes tar unpack failure
+            let target_path = dunce::simplified(&data_dir_clone);
             archive
-                .unpack(&data_dir_clone)
+                .unpack(target_path)
                 .map_err(|e| format!("Gzip解压失败: {}", e))?;
         } else {
             let mut archive = Archive::new(&data_clone[..]);
+            // Fix: Windows extended path prefix (\\?\) causes tar unpack failure
+            let target_path = dunce::simplified(&data_dir_clone);
             archive
-                .unpack(&data_dir_clone)
+                .unpack(target_path)
                 .map_err(|e| format!("Tar解压失败: {}", e))?;
         }
 

@@ -50,6 +50,7 @@
         height: number;
         is_favorite: boolean;
         is_ai: boolean;
+        is_authorized: boolean;
         color_category: string | null;
         created_at: string;
     }
@@ -136,13 +137,14 @@
 
     // 批量操作状态
     let isSelectionMode = $state(false);
-    let selectedImageIds: Set<string> = $state(new Set());
+    let selectedImageIds = $state(new Set<string>());
+    let deleteDialogOpen = $state(false);
+    let imageToDelete = $state<string | null>(null);
     let isBatchDeleteArgs = $state(false);
     let moveDialogOpen = $state(false);
     let targetCategoryId: string | null = $state(null);
     let isExporting = $state(false);
-    let deleteDialogOpen = $state(false);
-    let imageToDelete: string | null = $state(null);
+
 
     // ============ API 调用 ============
     async function fetchCategories() {
@@ -413,11 +415,17 @@
         }
     }
 
-    async function deleteImage(id: string) {
-        if (!confirm("确认删除该图片？")) return;
+    function deleteImage(id: string) {
+        imageToDelete = id;
+        isBatchDeleteArgs = false;
+        deleteDialogOpen = true;
+    }
+
+    async function confirmDelete() {
+        if (!imageToDelete) return;
         try {
             const token = localStorage.getItem("auth_token");
-            await fetch(`${API_BASE}/api/images/${id}`, {
+            await fetch(`${API_BASE}/api/images/${imageToDelete}`, {
                 method: "DELETE",
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
@@ -427,6 +435,8 @@
         } catch (e) {
             toast.error("删除失败");
         }
+        deleteDialogOpen = false;
+        imageToDelete = null;
     }
 
     function startMultiselect(id: string) {
@@ -544,7 +554,10 @@
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-                toast.success("导出成功");
+                toast.success("导出成功", {
+                    description: "文件已保存到浏览器默认下载位置",
+                    duration: 4000,
+                });
             } else {
                 const err = await res.json();
                 toast.error(`导出失败: ${err.error}`);
@@ -619,7 +632,10 @@
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-            toast.success("导出成功");
+            toast.success("导出成功", {
+                description: "文件已保存到浏览器下载文件夹",
+                duration: 3000,
+            });
         } catch (e) {
             toast.error("导出失败");
         }
@@ -1010,6 +1026,8 @@
                                         isSelectionMode && selectedImageIds.has(image.id) && "ring-2 ring-primary"
                                     )}
                                     style="-webkit-touch-callout: none;"
+                                    role="button"
+                                    tabindex="0"
                                     oncontextmenu={(e) => e.preventDefault()}
                                     use:longpress
                                     onlongpress={(e) => {
@@ -1028,6 +1046,16 @@
                                                 clientY: touch.clientY,
                                             }),
                                         );
+                                    }}
+                                    onkeydown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            if (isSelectionMode) {
+                                                toggleImageSelection(image.id);
+                                            } else {
+                                                openEditDialog(image.id);
+                                            }
+                                        }
                                     }}
                                     onclick={(e) => {
                                         if (isLongPressTriggered) {
@@ -1244,7 +1272,6 @@
 
                         <Button 
                             size="sm"
-                            variant="success"
                             class="flex-1 sm:flex-none whitespace-nowrap bg-green-600 hover:bg-green-700 text-white dark:bg-green-600 dark:hover:bg-green-700"
                             onclick={handleBatchAuthorized}
                         >

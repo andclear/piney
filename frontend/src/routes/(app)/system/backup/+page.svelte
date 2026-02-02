@@ -48,7 +48,10 @@
             // 给予一点延迟提示完成，实际上浏览器已经接管下载
             setTimeout(() => {
                 toast.dismiss(loadingToast);
-                toast.success("请求已发送，下载即将开始");
+                toast.success("请求已发送", {
+                    description: "下载即将开始，请留意浏览器下载提示",
+                    duration: 5000,
+                });
                 isExporting = false;
             }, 1000);
 

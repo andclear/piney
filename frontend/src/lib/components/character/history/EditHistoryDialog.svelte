@@ -11,7 +11,7 @@
     import { cn } from "$lib/utils";
     import { convertJsonlToTxt, scanTags } from "$lib/utils/exportUtils";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
-    import { dndzone } from "svelte-dnd-action";
+    import { dndzone, type DndEvent } from "svelte-dnd-action";
     import { flip } from "svelte/animate";
     import { untrack } from "svelte";
 

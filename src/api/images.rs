@@ -822,7 +822,7 @@ pub async fn batch_export(
                 crate::utils::paths::get_data_dir().join(img.file_path.trim_start_matches('/'));
             if path.exists() {
                 if let Ok(content) = fs::read(&path).await {
-                    let file_name = if img.title.trim().is_empty() {
+                    let mut file_name = if img.title.trim().is_empty() {
                         // Fallback using uuid or path extraction if title is empty
                         path.file_name()
                             .and_then(|n| n.to_str())
@@ -832,11 +832,24 @@ pub async fn batch_export(
                         img.title.clone()
                     };
 
+                    // Sanitize filename
+                    file_name = file_name
+                        .replace('/', "_")
+                        .replace('\\', "_")
+                        .replace(':', "_")
+                        .replace('*', "_")
+                        .replace('?', "_")
+                        .replace('"', "_")
+                        .replace('<', "_")
+                        .replace('>', "_")
+                        .replace('|', "_");
+
                     let mut clean_name = file_name.clone();
                     if !clean_name.to_lowercase().ends_with(".png")
                         && !clean_name.to_lowercase().ends_with(".jpg")
                         && !clean_name.to_lowercase().ends_with(".jpeg")
                         && !clean_name.to_lowercase().ends_with(".webp")
+                        && !clean_name.to_lowercase().ends_with(".gif")
                     {
                         if let Some(ext) = path.extension() {
                             clean_name = format!("{}.{}", clean_name, ext.to_string_lossy());
@@ -921,9 +934,31 @@ pub async fn export(
     };
 
     let encoded_filename = urlencoding::encode(&image.title);
+
+    // Sanitize for ASCII filename
+    // Replace non-ascii and invalid chars with _
+    let safe_filename: String = image
+        .title
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    // Ensure it's not empty
+    let safe_filename = if safe_filename.trim().is_empty() {
+        "image".to_string()
+    } else {
+        safe_filename
+    };
+
     let disposition = format!(
-        "attachment; filename=\"download.{}\"; filename*=UTF-8''{}.{}",
-        ext, encoded_filename, ext
+        "attachment; filename=\"{}.{}\"; filename*=UTF-8''{}.{}",
+        safe_filename, ext, encoded_filename, ext
     );
 
     Ok((

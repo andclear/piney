@@ -389,7 +389,7 @@
     // Action to mount Iframe components in place of code blocks
     function mountCodeBlockIframes(node: HTMLElement, content: string) {
         // Track mounted components to clean up
-        const mountedComponents: { unmount: () => void }[] = [];
+        const mountedComponents: any[] = [];
 
         function update() {
             // 查找所有标记为需要 iframe 渲染的代码块

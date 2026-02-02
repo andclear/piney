@@ -38,7 +38,7 @@ export function isFrontend(content: string): boolean {
 }
 
 // --- 3. Iframe Content Generator ---
-export function createIframeContent(content: string): string {
+export function createIframeContent(content: string, useBlobUrl: boolean = false): string {
     const style = `
         <style>
             *,*::before,*::after{box-sizing:border-box;}
