@@ -111,13 +111,17 @@ pub async fn init_database() -> anyhow::Result<DatabaseConnection> {
     // Windows 下路径包含反斜杠，会导致 URL 解析错误，必须转换为正斜杠
     let db_path_str = db_path.to_string_lossy().replace('\\', "/");
 
-    let db_url = if cfg!(windows) {
-        // Windows 需要 3 个斜杠来表示本地绝对路径 (sqlite:///D:/...)
-        format!("sqlite:///{}?mode=rwc", db_path_str)
-    } else {
-        // Unix 路径本身以 / 开头，所以用 2 个斜杠 (sqlite:// + /path = sqlite:///path)
-        format!("sqlite://{}?mode=rwc", db_path_str)
-    };
+    // 关键修正：手动创建文件，避免依赖 URL query 的 ?mode=rwc 解析（这在 Windows 下极易出错）
+    // 这种方式兼容 Win/Mac/Linux/Android
+    if !db_path.exists() {
+        info!("数据库文件不存在，预创建空文件: {:?}", db_path);
+        std::fs::File::create(&db_path)?;
+    }
+
+    // 构建简单的连接字符串 (不带查询参数，也就不会有解析歧义)
+    // 比如 Windows: sqlite:D:/Piney/data/piney.db
+    // 比如 Mac:     sqlite:/Users/name/.../piney.db
+    let db_url = format!("sqlite:{}", db_path_str);
 
     info!("连接数据库: {}", db_url);
 
