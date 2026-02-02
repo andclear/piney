@@ -37,7 +37,7 @@ pub fn run() {
             {
                 let current_dir = std::env::current_dir().unwrap_or_default();
                 let local_data = current_dir.join("data");
-                let mut final_data_path = std::path::PathBuf::new();
+
                 let mut use_local = false;
 
                 // 1. 尝试使用或创建当前目录下的 data (便携模式优先)
@@ -53,6 +53,7 @@ pub fn run() {
                     }
                 }
 
+                let mut final_data_path;
                 if use_local {
                     final_data_path = local_data;
                 } else {
