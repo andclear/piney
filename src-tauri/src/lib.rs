@@ -7,11 +7,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|_app| {
+            // 0. 全局 Panic 捕获 (调试用)
+            std::panic::set_hook(Box::new(|info| {
+                let msg = format!("Panic occurred: {:?}", info);
+                let _ = std::fs::write("panic_crash.txt", msg);
+            }));
+
             // 设置环境变量标记 Tauri 模式
             std::env::set_var("TAURI_ENV", "1");
 
             if let Ok(current_dir) = std::env::current_dir() {
                 println!("Tauri 启动 CWD: {:?}", current_dir);
+                let _ = std::fs::write("cwd_debug.txt", format!("CWD: {:?}\n", current_dir));
             }
 
             // 移动端：使用系统分配的 App Data 目录（只有这里有读写权限）
@@ -29,31 +36,44 @@ pub fn run() {
             #[cfg(not(mobile))]
             {
                 let current_dir = std::env::current_dir().unwrap_or_default();
+                let local_data = current_dir.join("data");
+                let mut final_data_path = std::path::PathBuf::new();
+                let mut use_local = false;
 
-                // 1. 默认数据目录逻辑
-                let mut final_data_path = _app
-                    .path()
-                    .app_data_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("data"));
+                // 1. 尝试使用或创建当前目录下的 data (便携模式优先)
+                if local_data.exists() {
+                    use_local = true;
+                } else {
+                    // 尝试创建 ./data
+                    if let Ok(_) = std::fs::create_dir(&local_data) {
+                        println!("成功创建本地 data 目录: {:?}", local_data);
+                        use_local = true;
+                    } else {
+                        println!("无法在当前目录创建 data (可能是权限不足)，将回退到 AppData");
+                    }
+                }
 
-                // 2. 特殊情况处理
-                // 如果当前目录下存在 data 文件夹，强制使用它（支持 macOS 便携模式）
-                if std::path::PathBuf::from("data").exists() {
-                    final_data_path = std::path::PathBuf::from("data");
+                if use_local {
+                    final_data_path = local_data;
+                } else {
+                    // 2. 回退到系统 AppData
+                    final_data_path = _app
+                        .path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("data"));
                 }
 
                 // 开发环境修正：如果在 src-tauri 目录下运行
                 if current_dir.ends_with("src-tauri") {
                     let parent_data = current_dir.parent().unwrap().join("data");
                     if parent_data.exists() {
-                        println!("检测到处于 src-tauri 目录，优先使用项目根目录 data");
                         final_data_path = parent_data;
                     }
                 }
 
                 // 3. 确保目录存在
                 if !final_data_path.exists() {
-                    std::fs::create_dir_all(&final_data_path).expect("无法创建数据目录");
+                    let _ = std::fs::create_dir_all(&final_data_path);
                 }
 
                 let abs_data = std::fs::canonicalize(&final_data_path).unwrap_or(final_data_path);
