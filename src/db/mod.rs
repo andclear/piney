@@ -108,7 +108,9 @@ pub async fn init_database() -> anyhow::Result<DatabaseConnection> {
 
     // 数据库文件路径
     let db_path = data_path.join("piney.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+    // Windows 下路径包含反斜杠，会导致 URL 解析错误，必须转换为正斜杠
+    let db_path_str = db_path.to_string_lossy().replace('\\', "/");
+    let db_url = format!("sqlite:{}?mode=rwc", db_path_str);
 
     info!("连接数据库: {}", db_url);
 
