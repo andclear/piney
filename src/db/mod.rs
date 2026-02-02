@@ -118,21 +118,44 @@ pub async fn init_database() -> anyhow::Result<DatabaseConnection> {
         std::fs::File::create(&db_path)?;
     }
 
-    // 构建连接字符串 (不带查询参数)
-    // Windows: sqlite:///D:/path/to/db (3个斜杠 = 空host + 绝对路径)
-    // Unix:    sqlite:///path/to/db     (3个斜杠 = 空host + 绝对路径)
-    // 注意：Unix下 db_path_str 已经是 / 开头，所以用 sqlite:// 连接即可
-
-    let db_url = if cfg!(windows) {
-        format!("sqlite:///{}", db_path_str)
+    // 策略 A: 相对路径 (首选，避开盘符问题)
+    let current_dir = std::env::current_dir().unwrap_or_default();
+    let relative_url = if let Ok(rel_path) = db_path.strip_prefix(&current_dir) {
+        let rel_str = rel_path.to_string_lossy().replace('\\', "/");
+        Some(format!("sqlite:./{}", rel_str))
     } else {
-        format!("sqlite://{}", db_path_str)
+        None
     };
 
-    info!("连接数据库: {}", db_url);
+    // 策略 B: 绝对路径 (备选，标准 URI)
+    let absolute_url = if cfg!(windows) {
+        format!("sqlite:///{}", db_path_str) // 3 slashes for Windows
+    } else {
+        format!("sqlite://{}", db_path_str) // 2 slashes for Unix
+    };
 
-    // 连接数据库
-    let db = Database::connect(&db_url).await?;
+    info!("尝试数据库连接策略 A (相对路径): {:?}", relative_url);
+
+    // 执行连接尝试
+    let db = if let Some(url) = relative_url {
+        match Database::connect(&url).await {
+            Ok(conn) => {
+                info!("策略 A 连接成功");
+                conn
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "策略 A 连接失败 ({}), 切换到策略 B (绝对路径): {}",
+                    e,
+                    absolute_url
+                );
+                Database::connect(&absolute_url).await?
+            }
+        }
+    } else {
+        info!("直接使用策略 B (绝对路径): {}", absolute_url);
+        Database::connect(&absolute_url).await?
+    };
 
     // 开启 WAL 模式以提高并发性能，并设置 busy_timeout 防止锁竞争导致 500
     db.execute(Statement::from_string(
