@@ -145,7 +145,7 @@
 <Dialog.Root bind:open={isZenMode}>
     <Dialog.Content class={cn(
         "!max-w-none h-[95vh] flex flex-col p-6",
-        isPreviewMode ? "!w-[95vw]" : "!w-[80vw]"
+        isPreviewMode ? "!w-[95vw]" : "!w-[95vw]"
     )}>
         <Dialog.Header class="flex-shrink-0 flex-row items-center justify-between space-y-0">
             <div>
