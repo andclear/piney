@@ -142,7 +142,6 @@ pub async fn import_backup(
     }
 
     // 1. 读取上传的文件
-    // 1. 读取上传的文件
     let mut file_data: Option<Vec<u8>> = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -219,13 +218,6 @@ pub async fn import_backup(
 
         if is_gzip {
             let decoder = GzDecoder::new(&data_clone[..]);
-            // Tar crate Archive takes a reader. We need to buffer it or read all.
-            // Since we already have data_clone as Vec<u8>, we can just decode it.
-            // Wait, Archive takes Read.
-            // unpack closure expects Archive<&[u8]>. GzDecoder is not &[u8].
-            // We need to decode Gzip first to use the same closure, OR make closure generic.
-
-            // Let's just inline logic to avoid complexity
             let mut archive = Archive::new(decoder);
             let entries = archive
                 .entries()

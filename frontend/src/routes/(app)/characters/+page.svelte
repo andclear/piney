@@ -1074,7 +1074,7 @@
                                         : goto(`/characters/${card.id}`);
                                 }
                             }}
-                            oncontextmenu={(e) => e.preventDefault()}
+
                             use:longpress
                             onlongpress={(e) => {
                                 isLongPressTriggered = true;

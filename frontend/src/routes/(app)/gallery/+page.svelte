@@ -1020,10 +1020,6 @@
     {:else if images.length === 0}
         <div class="text-center py-20 text-muted-foreground">
             <p>暂无图片</p>
-            <Button class="mt-4" onclick={() => fileInput.click()}>
-                <Upload class="h-4 w-4 mr-2" />
-                导入图片
-            </Button>
         </div>
     {:else}
         <!-- 瀑布流布局 -->
@@ -1043,7 +1039,7 @@
                                     style="-webkit-touch-callout: none;"
                                     role="button"
                                     tabindex="0"
-                                    oncontextmenu={(e) => e.preventDefault()}
+
                                     use:longpress
                                     onlongpress={(e) => {
                                         isLongPressTriggered = true;
