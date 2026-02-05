@@ -105,18 +105,34 @@ pub fn run() {
             log("Tauri setup completed. Spawning backend thread...");
 
             // 启动后端服务（在单独的线程中）
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    log_clone("Backend thread started.");
-                    if let Err(e) = start_backend(log_clone.clone()).await {
-                        log_clone(&format!("Backend CRASHED: {}", e));
-                        eprintln!("后端启动失败: {}", e);
-                    } else {
-                        log_clone("Backend stopped unexpectedly (or app closed).");
+            // 使用 OnceLock 确保后端只启动一次 (防止 Activity 重建导致重复启动)
+            static BACKEND_STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+            if BACKEND_STARTED.get().is_none() {
+                let log_clone = log.clone();
+                match BACKEND_STARTED.set(()) {
+                    Ok(_) => {
+                        log("Spawning backend thread for the first time...");
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                log_clone("Backend thread started.");
+                                if let Err(e) = start_backend(log_clone.clone()).await {
+                                    log_clone(&format!("Backend CRASHED: {}", e));
+                                    eprintln!("后端启动失败: {}", e);
+                                } else {
+                                    log_clone("Backend stopped unexpectedly (or app closed).");
+                                }
+                            });
+                        });
                     }
-                });
-            });
+                    Err(_) => {
+                        log("Backend already started (race condition resolved).");
+                    }
+                }
+            } else {
+                log("Backend already running. Skipping spawn.");
+            }
 
             Ok(())
         })
@@ -156,7 +172,19 @@ where
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
     log(&format!("Binding to address: {}", addr));
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+
+    let listener = loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(l) => break l,
+            Err(e) => {
+                log(&format!(
+                    "Failed to bind port {}: {}, retrying in 1s...",
+                    port, e
+                ));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    };
 
     log("Server listening. Entering loop...");
     axum::serve(listener, app).await?;

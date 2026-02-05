@@ -12,34 +12,64 @@ class AuthStore {
     avatar = $state<string>("");
 
     async init() {
-        try {
-            const token = localStorage.getItem('auth_token');
-            const headers: HeadersInit = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
+        let retries = 20; // 10 seconds timeout
+        let lastError = null;
 
-            const res = await fetch(`${getApiBase()}/api/auth/status`, {
-                headers
-            });
+        while (retries > 0) {
+            try {
+                const token = localStorage.getItem('auth_token');
+                const headers: HeadersInit = {};
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
 
-            if (res.ok) {
-                const data = await res.json();
-                this.initialized = data.initialized;
+                const res = await fetch(`${getApiBase()}/api/auth/status`, {
+                    headers
+                });
 
-                this.authenticated = !!token;
-                this.username = data.username;
+                if (res.ok) {
+                    const data = await res.json();
+                    this.initialized = data.initialized;
 
-                if (this.authenticated) {
-                    this.fetchAvatar();
+                    this.authenticated = !!token;
+                    this.username = data.username;
+
+                    if (this.authenticated) {
+                        this.fetchAvatar();
+                    }
+                    this.loading = false;
+                    this.checkRedirect();
+                    return; // Success
+                } else if (res.status === 401) {
+                    // Token invalid
+                    localStorage.removeItem('auth_token');
+                    this.authenticated = false;
+                    // Let it proceed to checkRedirect
+                    break;
+                }
+                // Server returned error (500 etc), stop retrying?
+                // Or maybe database is still locking? Retry a few times?
+                // Let's count it as a retry-able failure for now if status is 5xx
+                if (res.status >= 500) {
+                    throw new Error(`Server Error ${res.status}`);
+                }
+                break; // Client error (4xx), stop retrying
+            } catch (e) {
+                console.warn(`Auth check failed (retries left: ${retries}):`, e);
+                lastError = e;
+                retries--;
+                if (retries > 0) {
+                    await new Promise(r => setTimeout(r, 500));
                 }
             }
-        } catch (e) {
-            console.error("Auth check failed", e);
-        } finally {
-            this.loading = false;
-            this.checkRedirect();
         }
+
+        // If we get here, we failed or ran out of retries
+        console.error("Auth initialization failed permanently:", lastError);
+        this.loading = false;
+        // Proceeding to checkRedirect might loop if initialized is false
+        // But better than stuck loading
+        this.checkRedirect();
     }
 
     checkRedirect() {
