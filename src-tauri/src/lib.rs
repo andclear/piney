@@ -104,31 +104,32 @@ pub fn run() {
             log("Tauri setup completed. Spawning backend thread...");
 
             // 启动后端服务（在单独的线程中）
-            // 使用 OnceLock 确保后端只启动一次 (防止 Activity 重建导致重复启动)
-            static BACKEND_STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            // 使用 AtomicBool 追踪后端状态：
+            // - swap(true) 防止 Activity 重建导致重复启动 (和 OnceLock 效果一样)
+            // - 崩溃后 store(false) 允许下次重启 (OnceLock 做不到)
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static BACKEND_RUNNING: AtomicBool = AtomicBool::new(false);
 
-            if BACKEND_STARTED.get().is_none() {
+            // swap(true) 返回旧值：如果是 false，说明后端没在运行，我们启动它
+            // 如果是 true，说明后端已在运行，跳过
+            if !BACKEND_RUNNING.swap(true, Ordering::SeqCst) {
                 let log_clone = log.clone();
-                match BACKEND_STARTED.set(()) {
-                    Ok(_) => {
-                        log("Spawning backend thread for the first time...");
-                        std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
-                                log_clone("Backend thread started.");
-                                if let Err(e) = start_backend(log_clone.clone()).await {
-                                    log_clone(&format!("Backend CRASHED: {}", e));
-                                    eprintln!("后端启动失败: {}", e);
-                                } else {
-                                    log_clone("Backend stopped unexpectedly (or app closed).");
-                                }
-                            });
-                        });
-                    }
-                    Err(_) => {
-                        log("Backend already started (race condition resolved).");
-                    }
-                }
+                log("Spawning backend thread...");
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        log_clone("Backend thread started.");
+                        if let Err(e) = start_backend(log_clone.clone()).await {
+                            log_clone(&format!("Backend CRASHED: {}", e));
+                            eprintln!("后端启动失败: {}", e);
+                        } else {
+                            log_clone("Backend stopped unexpectedly (or app closed).");
+                        }
+                        // 关键：后端退出后重置标志，允许下次 Activity 重建时重启
+                        BACKEND_RUNNING.store(false, Ordering::SeqCst);
+                        log_clone("Backend exited. Flag reset, will restart on next lifecycle.");
+                    });
+                });
             } else {
                 log("Backend already running. Skipping spawn.");
             }
@@ -143,15 +144,29 @@ async fn start_backend<F>(log: F) -> anyhow::Result<()>
 where
     F: Fn(&str) + Clone + Send + Sync + 'static,
 {
+    // 数据库初始化 (带重试逻辑，解决 Android 上的瞬时故障)
     log("Initializing database...");
-    let db = match piney::db::init_database().await {
-        Ok(d) => d,
-        Err(e) => {
-            log(&format!("Database init failed: {}", e));
-            return Err(e.into());
+    let mut db_retries = 10;
+    let db = loop {
+        match piney::db::init_database().await {
+            Ok(d) => {
+                log("Database initialized successfully.");
+                break d;
+            }
+            Err(e) => {
+                db_retries -= 1;
+                if db_retries <= 0 {
+                    log(&format!("Database init failed after 10 retries: {}", e));
+                    return Err(e.into());
+                }
+                log(&format!(
+                    "Database init failed: {}, retrying in 1s... ({} retries left)",
+                    e, db_retries
+                ));
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
         }
     };
-    log("Database initialized.");
 
     // 2. 运行模式
     let mode = piney::utils::mode_detect::RunMode::App;
