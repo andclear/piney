@@ -1,0 +1,115 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release Version (e.g. 0.2.7)'
+        required: true
+        default: '0.2.7'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;27.0.11902837"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Setup Android Signing
+        env:
+          ANDROID_KEY_STORE_BASE64: ${{ secrets.ANDROID_KEY_STORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          # 1. Decode Keystore
+          echo "$ANDROID_KEY_STORE_BASE64" | base64 --decode > ${{ github.workspace }}/piney-key.jks
+          
+          # 2. Create android-signing.properties in root (referenced by build.gradle.kts)
+          echo "key.store=${{ github.workspace }}/piney-key.jks" > android-signing.properties
+          echo "key.alias=$ANDROID_KEY_ALIAS" >> android-signing.properties
+          echo "key.alias.password=$ANDROID_KEY_PASSWORD" >> android-signing.properties
+          echo "key.store.password=$ANDROID_STORE_PASSWORD" >> android-signing.properties
+
+      - name: Build Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
+        run: |
+          # Use Tauri CLI from frontend/node_modules (already installed via npm install)
+          cd frontend
+          npx tauri android build --apk
+          
+      - name: Find and Copy APK
+        run: |
+          mkdir -p release_artifacts
+          
+          echo "=== Looking for APK files ==="
+          find src-tauri/gen/android -name "*.apk" -type f
+          
+          # Try universal APK first
+          if [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk" ]; then
+            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk release_artifacts/Piney-v${{ inputs.version }}-universal.apk
+            echo "Copied universal APK"
+          else
+            # Fallback: copy all release APKs
+            find src-tauri/gen/android/app/build/outputs/apk -name "*-release*.apk" -exec cp {} release_artifacts/ \;
+            echo "Copied all release APKs"
+          fi
+          
+          # Rename with version
+          cd release_artifacts
+          for f in *.apk; do
+            if [[ "$f" != *"${{ inputs.version }}"* ]]; then
+              mv "$f" "Piney-v${{ inputs.version }}-${f}"
+            fi
+          done
+          ls -la
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Piney-Android-v${{ inputs.version }}
+          path: release_artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Piney v${{ inputs.version }}
+          draft: true
+          prerelease: false
+          files: release_artifacts/*
+
