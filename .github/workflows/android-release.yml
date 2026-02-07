@@ -68,9 +68,9 @@ jobs:
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
         run: |
-          # Use Tauri CLI from frontend/node_modules (already installed via npm install)
-          cd frontend
-          npx tauri android build --apk
+          # Run from project root, same as local: npm run tauri -- android build --apk
+          # npm run tauri uses ./frontend/node_modules/.bin/tauri
+          npm run tauri -- android build --apk true
           
       - name: Find and Copy APK
         run: |
