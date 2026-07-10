@@ -36,9 +36,10 @@
             const targetFeature = action === "optimize" ? feature : AiFeature.TRANSLATE;
             const res = await AiService.processText(targetFeature, value);
             
-            resultText = res;
+            resultText = res.content;
             dialogTitle = action === "optimize" ? "AI 润色优化建议" : "AI 翻译建议";
             showDiff = true;
+            if (res.truncated) toast.warning("AI 输出达到上限，已保留生成内容，请检查结尾");
         } catch (e: any) {
             console.error(e);
             toast.error("AI 请求失败: " + e.message);

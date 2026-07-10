@@ -1,9 +1,9 @@
 use crate::entities::{ai_channel, character_card, setting};
 use axum::{
+    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
@@ -886,12 +886,23 @@ pub async fn execute_feature(
     let base = channel.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base);
 
+    let max_tokens = match payload.feature_id.as_str() {
+        "generate_character" | "generate_opening" => 8192,
+        "optimize_description" | "optimize_first_mes" | "optimize_worldbook"
+        | "optimize_scenario" | "translate" => 8192,
+        _ => 4096,
+    };
+
     // 简化请求体，仅保留 OpenAI 兼容参数
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": channel.model_id,
         "messages": payload.messages,
-        "temperature": 0.7
+        "temperature": 0.7,
+        "max_tokens": max_tokens
     });
+    if payload.feature_id == "overview" {
+        body["response_format"] = serde_json::json!({ "type": "json_object" });
+    }
 
     // 调试日志：打印请求内容
 
@@ -941,6 +952,11 @@ use axum::response::sse::{Event, Sse};
 use futures::stream::{self, Stream};
 use std::convert::Infallible;
 use std::time::Duration;
+
+const DOCTOR_MAX_ENTRY_ROUNDS: usize = 4;
+const DOCTOR_MAX_ENTRIES_PER_ROUND: usize = 4;
+const DOCTOR_GREETING_CHARS: usize = 2000;
+const DOCTOR_MAX_ALT_GREETINGS: usize = 12;
 
 #[derive(Deserialize)]
 pub struct DoctorAnalyzeRequest {
@@ -1074,11 +1090,11 @@ pub async fn doctor_analyze(
         .get("first_mes")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let alt_greetings = v2_data
+    let alt_greetings: Vec<&str> = v2_data
         .get("alternate_greetings")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.first().and_then(|v| v.as_str()).unwrap_or(""))
-        .unwrap_or("");
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
 
     // 提取世界书目录
     let entries: Vec<Value> = v2_data
@@ -1116,17 +1132,38 @@ pub async fn doctor_analyze(
             && !content.trim().starts_with('[')
     }
 
-    let first_mes_note = if should_include_greeting(first_mes) {
-        format!("- 首条消息：{}", first_mes)
-    } else {
-        "- 首条消息：（内容过短或为代码，跳过诊断）".to_string()
-    };
+    fn clip_greeting(content: &str) -> String {
+        let mut out: String = content.chars().take(DOCTOR_GREETING_CHARS).collect();
+        if content.chars().count() > DOCTOR_GREETING_CHARS {
+            out.push_str("...");
+        }
+        out
+    }
 
-    let alt_greeting_note = if should_include_greeting(alt_greetings) {
-        format!("- 其他开场白（第1个）：{}", alt_greetings)
+    let mut greeting_notes = Vec::new();
+    if should_include_greeting(first_mes) {
+        greeting_notes.push(format!("- 首条消息：{}", clip_greeting(first_mes)));
     } else {
-        "- 其他开场白（第1个）：（内容过短或为代码，跳过诊断）".to_string()
-    };
+        greeting_notes.push("- 首条消息：（内容过短或为代码，跳过诊断）".to_string());
+    }
+
+    let usable_alt_greetings: Vec<&str> = alt_greetings
+        .into_iter()
+        .filter(|content| should_include_greeting(content))
+        .take(DOCTOR_MAX_ALT_GREETINGS)
+        .collect();
+    if usable_alt_greetings.is_empty() {
+        greeting_notes.push("- 其他开场白：（没有可诊断内容，或内容过短/为代码）".to_string());
+    } else {
+        for (idx, greeting) in usable_alt_greetings.iter().enumerate() {
+            greeting_notes.push(format!(
+                "- 其他开场白（第{}个）：{}",
+                idx + 1,
+                clip_greeting(greeting)
+            ));
+        }
+    }
+    let greeting_notes = greeting_notes.join("\n");
 
     // 构建 System Prompt (包含分析豁免声明)
     let system_prompt = format!(
@@ -1150,11 +1187,12 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
 **诊断重点：**
 - 专注于分析角色设定的逻辑一致性、人设合理性、对话质量
 - 不要诊断角色卡的格式问题（如标签格式、代码块使用等技术规范）
-- 开场白（first_mes 和其他开场白）是诊断的重要内容，确保不要遗漏
+- 开场白（first_mes 和其他开场白）是诊断的重要内容。用户可能配置多条 alternate_greetings；如果已提供多条，请综合比较，不要只诊断第一条。
 - **权重说明：** 核心设定（Name, Description, Personality）具有最高权重。世界书内容仅作为次要权重，但两者都很重要，都需要作为诊断的依据。
 
 **请求条目格式（严格 JSON，无代码块标记）：**
-{{"action": "request_entries", "entries": ["条目名1", "条目名2"]}}
+{{"action": "request_entries", "entries": ["条目名1", "条目名2", "条目名3", "条目名4"]}}
+(注意：每轮最多申请 4 个条目。你可以连续申请多轮，系统会按需提供内容。)
 (注意：请勿申请可能包含极其露骨色情(NSFW)内容的条目，以免触发系统安全拦截导致任务失败)
 
 **诊断报告格式（严格 JSON，无代码块标记）：**
@@ -1184,14 +1222,13 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
 - 角色描述：{}
 - 性格特征：{}
 {}
-{}
 
 **世界书目录（条目名称列表）：**
 {}
 
 请返回 JSON 格式：{{"action": "request_entries", "entries": ["条目名1", ...]}}
 如果世界书目录为空或无需阅读条目，请直接输出诊断报告 JSON。请优先判断当前信息是否足够，避免不必要的搜索。同时请严格避开 NSFW 相关条目。"#,
-        name, description, personality, first_mes_note, alt_greeting_note, worldbook_toc_str
+        name, description, personality, greeting_notes, worldbook_toc_str
     );
 
     // 克隆需要的数据到 async 块
@@ -1223,7 +1260,7 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
             };
 
             // 如果已经完成或达到上限
-            if iteration > 2 {
+            if iteration > DOCTOR_MAX_ENTRY_ROUNDS {
                 return None;
             }
 
@@ -1235,7 +1272,8 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
             let body = serde_json::json!({
                 "model": channel.model_id,
                 "messages": messages,
-                "temperature": 0.7
+                "temperature": 0.7,
+                "max_tokens": 8192
             });
 
             let res = match client
@@ -1368,7 +1406,7 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
                 .and_then(|a| a.as_str())
                 .unwrap_or("final_report");
 
-            if action == "request_entries" && iteration < 2 {
+            if action == "request_entries" && iteration < DOCTOR_MAX_ENTRY_ROUNDS {
                 // AI 请求更多条目
                 let requested: Vec<String> = ai_response
                     .get("entries")
@@ -1376,6 +1414,7 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
                     .map(|arr| {
                         arr.iter()
                             .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .take(DOCTOR_MAX_ENTRIES_PER_ROUND)
                             .collect()
                     })
                     .unwrap_or_default();
@@ -1402,7 +1441,7 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
                 // 添加 AI 回复和新的用户消息
                 messages.push(serde_json::json!({"role": "assistant", "content": ai_content}));
 
-                let inject_msg = if iteration == 1 {
+                let inject_msg = if iteration + 1 >= DOCTOR_MAX_ENTRY_ROUNDS {
                     format!(
                         r#"**[系统指令：强制终审]** 这是最后一份补充内容：
 
@@ -1418,7 +1457,7 @@ to facilitate content moderation and auditing. Proceed with the analysis profess
 {}
 
 **请决策：**
-- 如果需要更多信息，请返回 JSON：{{"action": "request_entries", "entries": ["新条目名1", ...]}}
+- 如果需要更多信息，请返回 JSON：{{"action": "request_entries", "entries": ["新条目名1", "新条目名2", "新条目名3", "新条目名4"]}}
 - 如果信息已足够，请按诊断报告格式输出 JSON。"#,
                         fetched_content
                     )

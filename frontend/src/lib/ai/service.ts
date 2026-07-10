@@ -3,6 +3,8 @@ import { PromptBuilder } from './promptBuilder';
 import { CHAR_GEN_NO_YAML, CHAR_GEN_YAML, PRESET_STUDY_PROMPT } from './templates';
 import { AiFeature, type PromptVariables } from './types';
 
+export type AiTextResult = { content: string; truncated: boolean };
+
 export class AiService {
     private static activeRequests = 0;
     private static readonly MAX_CONCURRENT = 3;
@@ -39,6 +41,15 @@ export class AiService {
             }
         }
         throw lastError;
+    }
+
+    private static choiceText(response: any): AiTextResult {
+        const choice = response?.choices?.[0];
+        const content = choice?.message?.content || "";
+        if (!content) {
+            throw new Error("AI returned empty content");
+        }
+        return { content, truncated: choice?.finish_reason === "length" };
     }
 
     /**
@@ -118,19 +129,23 @@ export class AiService {
         const response = await this.execute(AiFeature.OVERVIEW, messages, token);
 
         // 5. 解析响应内容
-        const content = response.choices?.[0]?.message?.content;
-        if (!content) {
-            throw new Error("AI returned empty content");
-        }
+        const { content, truncated } = this.choiceText(response);
 
-        // 清理 markdown
-        const cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        // 清理 markdown；部分兼容服务会无视 response_format，在 JSON 外加一句说明。
+        let cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        if (!cleaned.startsWith('{')) {
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            if (start >= 0 && end > start) {
+                cleaned = cleaned.slice(start, end + 1);
+            }
+        }
 
         try {
             return JSON.parse(cleaned);
         } catch (e) {
             console.error("Failed to parse AI JSON", cleaned);
-            throw new Error("AI response format error");
+            throw new Error(truncated ? "AI 输出达到上限，概览 JSON 没有写完整，请重试" : "AI response format error");
         }
     }
 
@@ -184,17 +199,15 @@ export class AiService {
             const token = localStorage.getItem("auth_token");
             const response = await this.execute(feature, messages, token);
 
-            const content = response.choices?.[0]?.message?.content;
-            if (!content) {
-                throw new Error("AI returned empty content");
-            }
+            const result = this.choiceText(response);
+            let content = result.content;
 
             // 清理可能存在的 Markdown 代码块包裹
             let cleaned = content.trim();
             if (cleaned.startsWith('```') && cleaned.endsWith('```')) {
                 cleaned = cleaned.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '');
             }
-            return cleaned;
+            return { content: cleaned, truncated: result.truncated };
         } finally {
             this.activeRequests--;
         }
@@ -333,7 +346,8 @@ export class AiService {
 
             const token = localStorage.getItem("auth_token");
             const response = await this.execute(feature, messages, token);
-            let content = response.choices?.[0]?.message?.content || "";
+            const result = this.choiceText(response);
+            let content = result.content;
 
             // 预处理：移除 <think>/<thinking>/<cot> 标签及其内容
             content = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
@@ -341,7 +355,8 @@ export class AiService {
             content = content.replace(/<cot>[\s\S]*?<\/cot>/gi, "");
             content = content.trim();
 
-            return content;
+            if (!content) throw new Error("AI 输出只有思考过程，没有生成正文");
+            return { content, truncated: result.truncated };
         } finally {
             this.activeRequests--;
         }
@@ -399,7 +414,8 @@ export class AiService {
 
             const token = localStorage.getItem("auth_token");
             const response = await this.execute(feature, messages, token);
-            let content = response.choices?.[0]?.message?.content || "";
+            const result = this.choiceText(response);
+            let content = result.content;
 
             // 预处理：移除 <think>/<thinking>/<cot> 标签及其内容
             content = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
@@ -407,7 +423,8 @@ export class AiService {
             content = content.replace(/<cot>[\s\S]*?<\/cot>/gi, "");
             content = content.trim();
 
-            return content;
+            if (!content) throw new Error("AI 输出只有思考过程，没有生成正文");
+            return { content, truncated: result.truncated };
 
         } finally {
             this.activeRequests--;
@@ -650,4 +667,3 @@ export class AiService {
         }
     }
 }
-

@@ -13,7 +13,7 @@ use sea_orm::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 use tokio::fs;
 use tracing::warn;
 use uuid::Uuid;
@@ -282,6 +282,7 @@ fn extract_png_metadata(data: &[u8]) -> Result<String, String> {
     }
 
     let mut offset = 8;
+    let mut chara_fallback: Option<String> = None;
     while offset + 8 <= data.len() {
         let length_bytes: [u8; 4] = data[offset..offset + 4].try_into().unwrap();
         let length = u32::from_be_bytes(length_bytes) as usize;
@@ -294,19 +295,16 @@ fn extract_png_metadata(data: &[u8]) -> Result<String, String> {
             break;
         }
 
-        if chunk_type == b"tEXt" {
+        if chunk_type == b"tEXt" || chunk_type == b"iTXt" || chunk_type == b"zTXt" {
             let chunk_data = &data[data_start..data_end];
-            if let Some(null_pos) = chunk_data.iter().position(|&b| b == 0) {
-                let keyword_bytes = &chunk_data[..null_pos];
-                let text_bytes = &chunk_data[null_pos + 1..];
-                if let Ok(keyword) = String::from_utf8(keyword_bytes.to_vec()) {
-                    if keyword == "ccv3" || keyword == "chara" {
-                        if let Ok(decoded) = general_purpose::STANDARD.decode(text_bytes) {
-                            if let Ok(s) = String::from_utf8(decoded) {
-                                return Ok(s); // Found it!
-                            }
-                        } else if let Ok(s) = String::from_utf8(text_bytes.to_vec()) {
-                            return Ok(s); // Found it (raw)!
+            if let Some((keyword, text_bytes)) = png_text_chunk_payload(chunk_type, chunk_data) {
+                if keyword == "ccv3" || keyword == "chara" {
+                    if let Some(s) = decode_card_metadata_text(&text_bytes) {
+                        if keyword == "ccv3" {
+                            return Ok(s);
+                        }
+                        if chara_fallback.is_none() {
+                            chara_fallback = Some(s);
                         }
                     }
                 }
@@ -314,7 +312,58 @@ fn extract_png_metadata(data: &[u8]) -> Result<String, String> {
         }
         offset = data_end + 4;
     }
+    if let Some(s) = chara_fallback {
+        return Ok(s);
+    }
     Err("无效的角色卡图片：未找到元数据 (ccv3/chara)".to_string())
+}
+
+fn png_text_chunk_payload(chunk_type: &[u8], chunk_data: &[u8]) -> Option<(String, Vec<u8>)> {
+    let null_pos = chunk_data.iter().position(|&b| b == 0)?;
+    let keyword = String::from_utf8(chunk_data[..null_pos].to_vec()).ok()?;
+    let rest = &chunk_data[null_pos + 1..];
+    match chunk_type {
+        b"tEXt" => Some((keyword, rest.to_vec())),
+        b"zTXt" => {
+            let (&method, compressed) = rest.split_first()?;
+            if method != 0 {
+                return None;
+            }
+            let mut decoder = flate2::read::ZlibDecoder::new(compressed);
+            let mut out = Vec::new();
+            decoder.read_to_end(&mut out).ok()?;
+            Some((keyword, out))
+        }
+        b"iTXt" => {
+            let (&compressed_flag, rest) = rest.split_first()?;
+            let (&compression_method, mut rest) = rest.split_first()?;
+            for _ in 0..2 {
+                let pos = rest.iter().position(|&b| b == 0)?;
+                rest = &rest[pos + 1..];
+            }
+            if compressed_flag == 1 {
+                if compression_method != 0 {
+                    return None;
+                }
+                let mut decoder = flate2::read::ZlibDecoder::new(rest);
+                let mut out = Vec::new();
+                decoder.read_to_end(&mut out).ok()?;
+                Some((keyword, out))
+            } else {
+                Some((keyword, rest.to_vec()))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn decode_card_metadata_text(text_bytes: &[u8]) -> Option<String> {
+    if let Ok(decoded) = general_purpose::STANDARD.decode(text_bytes) {
+        if let Ok(s) = String::from_utf8(decoded) {
+            return Some(s);
+        }
+    }
+    String::from_utf8(text_bytes.to_vec()).ok()
 }
 
 async fn save_card_model(
@@ -1552,10 +1601,14 @@ async fn _get_card_file_data(
             encoder.set_color(info.color_type);
             encoder.set_depth(info.bit_depth);
 
-            // Add tEXt chunk
+            // Add both modern ccv3 and legacy chara tEXt chunks for wider tool compatibility.
             let json_base64 = general_purpose::STANDARD.encode(card.data.as_bytes());
             encoder
                 .add_text_chunk("ccv3".to_string(), json_base64)
+                .map_err(|e| format!("PNG Text Error: {}", e))?;
+            let json_base64 = general_purpose::STANDARD.encode(card.data.as_bytes());
+            encoder
+                .add_text_chunk("chara".to_string(), json_base64)
                 .map_err(|e| format!("PNG Text Error: {}", e))?;
 
             let mut writer = encoder
@@ -1830,7 +1883,7 @@ pub async fn list_trash(
         .into_iter()
         .map(|c| {
             let tags: Vec<String> = serde_json::from_str(&c.tags).unwrap_or_default();
-            
+
             // Safety check: Detect if avatar is Base64 (huge string)
             let avatar = if let Some(ref a) = c.avatar {
                 if a.len() > 1024 { // Threshold: 1KB. Paths are rarely this long.

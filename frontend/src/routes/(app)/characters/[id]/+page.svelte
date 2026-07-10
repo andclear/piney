@@ -180,23 +180,25 @@
         }
 
         try {
-            const content = await AiService.generateOpening(
+            const result = await AiService.generateOpening(
                 card,
                 openingGenRequest,
                 openingWordCount,
                 worldInfoContext,
                 openingPersonType
             );
+            const content = result.content;
 
             // Insertion Logic
             if (!formFirstMes || !formFirstMes.trim()) {
                 formFirstMes = content;
-                toast.success("已生成并设置为主开场白");
+                if (!result.truncated) toast.success("已生成并设置为主开场白");
             } else {
                 if (!formAltGreetings) formAltGreetings = [];
                 formAltGreetings = [...formAltGreetings, content];
-                toast.success("已生成并添加到备选开场白列表");
+                if (!result.truncated) toast.success("已生成并添加到备选开场白列表");
             }
+            if (result.truncated) toast.warning("AI 输出达到上限，已保留开场白，请检查结尾后再保存");
             
             isGreetingsDirty = true; // Mark as dirty
             isOpeningGenDialogOpen = false;
@@ -262,13 +264,14 @@
         }
 
         try {
-            const content = await AiService.generateCharacter(
+            const result = await AiService.generateCharacter(
                 genInput,
                 genUseYaml,
                 worldInfoContext
             );
-            formDescription = content;
-            toast.success("角色生成完成");
+            formDescription = result.content;
+            if (result.truncated) toast.warning("AI 输出达到上限，已保留角色描述，请检查结尾后再保存");
+            else toast.success("角色生成完成");
             isGenDialogOpen = false;
         } catch (err: any) {
              toast.error("生成失败: " + (err.message || err));
@@ -1188,13 +1191,11 @@
                                             />
                                             <span>AI 智能概览</span>
                                         </div>
-                                        <div
-                                            class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
+                                        <div class="flex items-center gap-1">
                                             <Button
                                                 variant="ghost"
-                                                size="icon"
-                                                class="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                                size="sm"
+                                                class="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
                                                 title="重新生成"
                                                 disabled={isGeneratingOverview}
                                                 onclick={generateOverview}
@@ -1203,20 +1204,43 @@
                                                     <Loader2
                                                         class="h-3.5 w-3.5 animate-spin"
                                                     />
+                                                    生成中
                                                 {:else}
                                                     <Sparkles
                                                         class="h-3.5 w-3.5"
                                                     />
+                                                    重新生成
                                                 {/if}
                                             </Button>
                                         </div>
                                     </div>
                                     {#if card.custom_summary}
-                                        <p
-                                            class="text-sm leading-relaxed text-muted-foreground/90 animate-in fade-in"
-                                        >
-                                            {card.custom_summary}
-                                        </p>
+                                        <div class="space-y-3 animate-in fade-in">
+                                            <p
+                                                class="text-sm leading-relaxed text-muted-foreground/90"
+                                            >
+                                                {card.custom_summary}
+                                            </p>
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                class="h-8 text-xs gap-2"
+                                                disabled={isGeneratingOverview}
+                                                onclick={generateOverview}
+                                            >
+                                                {#if isGeneratingOverview}
+                                                    <Loader2
+                                                        class="h-3.5 w-3.5 animate-spin"
+                                                    />
+                                                    生成中...
+                                                {:else}
+                                                    <Sparkles
+                                                        class="h-3.5 w-3.5"
+                                                    />
+                                                    重新生成概览
+                                                {/if}
+                                            </Button>
+                                        </div>
                                     {:else}
                                         <div
                                             class="text-center py-6 border border-dashed rounded-lg bg-background/50 flex flex-col items-center justify-center gap-3"
